@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
     depends_on: [backend]
     ports:
-      - "${PAAS_HTTP_PORT:-8080}:80"
+      - "${PAAS_HTTP_PORT:-32900}:80"
 volumes:
   mysql-data:
   local-apps:

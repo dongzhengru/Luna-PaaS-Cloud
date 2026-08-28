@@ -63,7 +63,7 @@ openssl rand -base64 32
 | `PAAS_PUBLIC_URL` | 是 | 后端公网 HTTPS 地址，供 Actions 回调 |
 | `PAAS_FRONTEND_URL` | 是 | 前端访问地址 |
 | `PAAS_SECURE_COOKIES` | 否 | 是否仅通过 HTTPS 发送会话 Cookie，默认 `true` |
-| `PAAS_HTTP_PORT` | 否 | 对外 HTTP 端口，默认 `8080` |
+| `PAAS_HTTP_PORT` | 否 | 对外 HTTP 端口，默认 `32900` |
 | `OAUTH_CLIENT_ID` | 是 | OAuth2 客户端 ID |
 | `OAUTH_CLIENT_SECRET` | 是 | OAuth2 客户端密钥 |
 | `OAUTH_REDIRECT_URL` | 是 | OAuth2 回调地址，通常为 `<公网地址>/api/auth/callback` |
@@ -81,7 +81,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-默认访问地址为 <http://localhost:8080>。查看日志：
+默认访问地址为 <http://localhost:32900>。查看日志：
 
 ```bash
 docker compose logs -f backend frontend
