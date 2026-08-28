@@ -495,20 +495,21 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 }
 
 type appInput struct {
-	Name           string                 `json:"name"`
-	Type           string                 `json:"type"`
-	RuntimeVersion string                 `json:"runtime_version"`
-	RepoURL        string                 `json:"repo_url"`
-	Branch         string                 `json:"branch"`
-	DockerfilePath string                 `json:"dockerfile_path"`
-	BuildContext   string                 `json:"build_context"`
-	NodeID         string                 `json:"node_id"`
-	RestartPolicy  string                 `json:"restart_policy"`
-	HostPort       int                    `json:"host_port"`
-	ContainerPort  int                    `json:"container_port"`
-	Environment    []model.EnvironmentVar `json:"environment"`
-	Volumes        []model.Volume         `json:"volumes"`
-	Health         model.HealthCheck      `json:"health"`
+	Name              string                 `json:"name"`
+	Type              string                 `json:"type"`
+	RuntimeVersion    string                 `json:"runtime_version"`
+	RepoURL           string                 `json:"repo_url"`
+	Branch            string                 `json:"branch"`
+	DockerfilePath    string                 `json:"dockerfile_path"`
+	BuildContext      string                 `json:"build_context"`
+	NodeID            string                 `json:"node_id"`
+	RestartPolicy     string                 `json:"restart_policy"`
+	HostPort          int                    `json:"host_port"`
+	ContainerPort     int                    `json:"container_port"`
+	HostAccessEnabled bool                   `json:"host_access_enabled"`
+	Environment       []model.EnvironmentVar `json:"environment"`
+	Volumes           []model.Volume         `json:"volumes"`
+	Health            model.HealthCheck      `json:"health"`
 }
 
 var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
@@ -722,14 +723,15 @@ func (s *Server) deleteApp(w http.ResponseWriter, r *http.Request) {
 }
 
 type appUpdateInput struct {
-	NodeID         string                 `json:"node_id"`
-	RuntimeVersion string                 `json:"runtime_version"`
-	HostPort       int                    `json:"host_port"`
-	ContainerPort  int                    `json:"container_port"`
-	RestartPolicy  string                 `json:"restart_policy"`
-	Environment    []model.EnvironmentVar `json:"environment"`
-	Volumes        []model.Volume         `json:"volumes"`
-	Health         *model.HealthCheck     `json:"health"`
+	NodeID            string                 `json:"node_id"`
+	RuntimeVersion    string                 `json:"runtime_version"`
+	HostPort          int                    `json:"host_port"`
+	ContainerPort     int                    `json:"container_port"`
+	RestartPolicy     string                 `json:"restart_policy"`
+	HostAccessEnabled *bool                  `json:"host_access_enabled"`
+	Environment       []model.EnvironmentVar `json:"environment"`
+	Volumes           []model.Volume         `json:"volumes"`
+	Health            *model.HealthCheck     `json:"health"`
 }
 
 var runtimeVersions = map[string]map[string]bool{
@@ -846,6 +848,9 @@ func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
 	a.RuntimeVersion = runtimeVersion
 	a.HostPort = in.HostPort
 	a.ContainerPort = in.ContainerPort
+	if in.HostAccessEnabled != nil {
+		a.HostAccessEnabled = *in.HostAccessEnabled
+	}
 	if map[string]bool{"always": true, "unless-stopped": true, "on-failure": true, "no": true}[in.RestartPolicy] {
 		a.RestartPolicy = in.RestartPolicy
 	}
@@ -956,6 +961,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		HostPort:             in.HostPort,
 		ContainerPort:        in.ContainerPort,
 		RestartPolicy:        in.RestartPolicy,
+		HostAccessEnabled:    in.HostAccessEnabled,
 		EnvironmentJSON:      string(ej),
 		VolumesJSON:          string(vj),
 		HealthJSON:           string(hj),

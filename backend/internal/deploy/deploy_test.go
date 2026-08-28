@@ -1,9 +1,21 @@
 package deploy
 
 import (
-	"paas.local/backend/internal/model"
+	"reflect"
 	"testing"
+
+	"paas.local/backend/internal/model"
 )
+
+func TestHostAliases(t *testing.T) {
+	if got := hostAliases(false); got != nil {
+		t.Fatalf("host aliases must be absent by default: %#v", got)
+	}
+	want := []string{"host.docker.internal:host-gateway"}
+	if got := hostAliases(true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected host aliases: %#v", got)
+	}
+}
 
 func TestValidateVolumes(t *testing.T) {
 	n := model.Node{AllowedMountRoots: "/srv/paas,/data/apps"}

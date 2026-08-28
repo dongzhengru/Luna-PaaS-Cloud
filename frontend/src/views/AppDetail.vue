@@ -48,6 +48,7 @@ const form = reactive<any>({
   host_port: 0,
   container_port: 0,
   restart_policy: 'unless-stopped',
+  host_access_enabled: false,
   environment: [],
   volumes: [],
   health: {},
@@ -183,6 +184,7 @@ function edit() {
   form.host_port = current.host_port
   form.container_port = current.container_port
   form.restart_policy = current.restart_policy
+  form.host_access_enabled = Boolean(current.host_access_enabled)
   form.environment = cloneArray(current.environment)
   form.volumes = cloneArray(current.volumes_json)
   form.health = { command: '', ...cloneObject(current.health_json) }
@@ -666,6 +668,10 @@ onUnmounted(() => {
                   <dt class="text-muted-foreground">端口</dt>
                   <dd>{{ app.host_port }} → {{ app.container_port }}</dd>
                 </div>
+                <div class="flex justify-between gap-6">
+                  <dt class="text-muted-foreground">宿主机访问</dt>
+                  <dd>{{ app.host_access_enabled ? '已启用' : '未启用' }}</dd>
+                </div>
               </dl>
             </div>
             <div>
@@ -715,6 +721,19 @@ onUnmounted(() => {
               <div class="field">
                 <Label>容器端口</Label><Input v-model.number="form.container_port" type="number" />
               </div>
+              <label class="field field-full flex-row items-start gap-3 rounded-lg border p-4">
+                <input
+                  v-model="form.host_access_enabled"
+                  type="checkbox"
+                  class="mt-0.5 size-4 rounded border-input"
+                />
+                <span>
+                  <span class="block text-sm font-medium">允许访问宿主机服务</span>
+                  <span class="field-help">
+                    下次发布时添加 host.docker.internal 映射，用于访问宿主机上的服务。
+                  </span>
+                </span>
+              </label>
               <div class="field field-full">
                 <div class="flex items-center justify-between">
                   <Label>环境变量</Label

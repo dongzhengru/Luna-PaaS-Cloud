@@ -33,6 +33,7 @@ const f = reactive({
   host_port: 8081,
   container_port: 8080,
   restart_policy: 'unless-stopped',
+  host_access_enabled: false,
   envText: '',
   volumeText: '',
   healthCommand: '',
@@ -193,8 +194,23 @@ async function submit() {
             <div class="field">
               <Label>容器端口</Label
               ><Input v-model.number="f.container_port" type="number" min="1" max="65535" />
-            </div></div></CardContent
-      ></Card>
+            </div>
+            <label class="field field-full flex-row items-start gap-3 rounded-lg border p-4">
+              <input
+                v-model="f.host_access_enabled"
+                type="checkbox"
+                class="mt-0.5 size-4 rounded border-input"
+              />
+              <span>
+                <span class="block text-sm font-medium">允许访问宿主机服务</span>
+                <span class="field-help">
+                  发布时添加 host.docker.internal 映射，用于访问宿主机上的服务。
+                </span>
+              </span>
+            </label>
+          </div></CardContent
+        ></Card
+      >
 
       <Card
         ><CardHeader class="border-b"

@@ -160,6 +160,7 @@ make format-check
 - 生产环境必须使用 HTTPS，并保持 `PAAS_SECURE_COOKIES=true`。
 - Actions 回调接口由每个应用独立的随机 Bearer Token 保护。
 - 应用端口默认只绑定部署节点的 `127.0.0.1`；对外服务应通过受控的反向代理暴露。
+- “允许访问宿主机服务”默认关闭；启用后应用可通过 `host.docker.internal` 访问宿主机。宿主机服务仍应启用认证并限制监听地址和防火墙规则。
 - 挂载 Docker Socket 等同于授予容器较高的宿主机权限，请限制平台访问者和宿主机权限。
 
 ## 项目结构

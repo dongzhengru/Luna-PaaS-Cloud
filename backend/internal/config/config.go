@@ -45,7 +45,7 @@ func Load() (Config, error) {
 		OAuthRedirectURL:  os.Getenv("OAUTH_REDIRECT_URL"),
 		OAuthScope:        env("OAUTH_SCOPE", "openid profile"),
 		OAuthPhonePath:    env("OAUTH_PHONE_PATH", "phone"),
-		Registry: 		   os.Getenv("ACR_REGISTRY"),
+		Registry:          os.Getenv("ACR_REGISTRY"),
 		RegistryNamespace: os.Getenv("ACR_NAMESPACE"),
 		SecureCookies:     envBool("PAAS_SECURE_COOKIES", true),
 		SessionTTL:        12 * time.Hour,

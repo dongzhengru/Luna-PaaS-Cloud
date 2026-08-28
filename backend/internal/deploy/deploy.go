@@ -322,6 +322,7 @@ type snapshot struct {
 	Health                  model.HealthCheck      `json:"health"`
 	HostPort, ContainerPort int
 	Restart                 string
+	HostAccessEnabled       bool `json:"host_access_enabled"`
 }
 
 func (r *Runner) Deploy(
@@ -348,13 +349,14 @@ func (r *Runner) Deploy(
 		}
 	}
 	snap := snapshot{
-		Image:         image,
-		Env:           env,
-		Volumes:       vols,
-		Health:        health,
-		HostPort:      a.HostPort,
-		ContainerPort: a.ContainerPort,
-		Restart:       a.RestartPolicy,
+		Image:             image,
+		Env:               env,
+		Volumes:           vols,
+		Health:            health,
+		HostPort:          a.HostPort,
+		ContainerPort:     a.ContainerPort,
+		Restart:           a.RestartPolicy,
+		HostAccessEnabled: a.HostAccessEnabled,
 	}
 	raw, _ := json.Marshal(snap)
 	sealed, e := r.Box.Seal(string(raw))
@@ -426,6 +428,7 @@ func (r *Runner) apply(ctx context.Context, a model.App, n model.Node, s snapsho
 		EnvFile       []string `yaml:"env_file,omitempty"`
 		Ports         []string `yaml:"ports,omitempty"`
 		Volumes       []string `yaml:"volumes,omitempty"`
+		ExtraHosts    []string `yaml:"extra_hosts,omitempty"`
 		Health        healthY  `yaml:"healthcheck,omitempty"`
 	}
 	type compose struct {
@@ -438,6 +441,7 @@ func (r *Runner) apply(ctx context.Context, a model.App, n model.Node, s snapsho
 		Restart:       s.Restart,
 		EnvFile:       []string{".env"},
 		Ports:         []string{fmt.Sprintf("127.0.0.1:%d:%d", s.HostPort, s.ContainerPort)},
+		ExtraHosts:    hostAliases(s.HostAccessEnabled),
 	}
 	named := map[string]map[string]any{}
 	for _, v := range s.Volumes {
@@ -528,6 +532,14 @@ func (r *Runner) apply(ctx context.Context, a model.App, n model.Node, s snapsho
 		}
 	}
 }
+
+func hostAliases(enabled bool) []string {
+	if !enabled {
+		return nil
+	}
+	return []string{"host.docker.internal:host-gateway"}
+}
+
 func shell(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 func escapeEnv(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "\n", "\\n")

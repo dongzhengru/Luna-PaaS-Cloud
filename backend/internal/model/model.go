@@ -64,6 +64,7 @@ type App struct {
 	HostPort             int    `gorm:"index"                json:"host_port"`
 	ContainerPort        int    `                            json:"container_port"`
 	RestartPolicy        string `                            json:"restart_policy"`
+	HostAccessEnabled    bool   `gorm:"default:false"        json:"host_access_enabled"`
 	EnvironmentJSON      string `gorm:"type:longtext"        json:"-"`
 	VolumesJSON          string `gorm:"type:longtext"        json:"volumes_json"`
 	HealthJSON           string `gorm:"type:text"            json:"health_json"`
