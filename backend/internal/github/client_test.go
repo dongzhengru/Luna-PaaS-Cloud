@@ -90,7 +90,9 @@ func TestWorkflowUsesTypeSpecificBuild(t *testing.T) {
 			[]string{
 				"actions/setup-go@v5",
 				`go-version: "1.24"`,
-				"go build -trimpath -o app .",
+				`go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./...`,
+				`go build -trimpath -o app "${main_packages[0]}"`,
+				"Expected exactly one Go main package",
 				"!app",
 			},
 		},

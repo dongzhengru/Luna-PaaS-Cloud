@@ -239,7 +239,13 @@ func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
       - name: Build Go application
         working-directory: %q
         run: |
-          go build -trimpath -o app .
+          mapfile -t main_packages < <(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./... | sed '/^$/d')
+          if [ "${#main_packages[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Go main package, found ${#main_packages[@]}: ${main_packages[*]}"
+            exit 1
+          fi
+          echo "Building Go main package: ${main_packages[0]}"
+          go build -trimpath -o app "${main_packages[0]}"
           printf '\n!app\n' >> .dockerignore
 `, versionConfig, contextDir)
 	default:
