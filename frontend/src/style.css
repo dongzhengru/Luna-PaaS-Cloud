@@ -1,0 +1,201 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.985 0.002 247.839);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.87 0 0);
+  --ring: oklch(0.556 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.205 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+}
+
+@theme inline {
+  --font-sans: Inter, 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 bg-background text-foreground antialiased;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button:not(:disabled),
+  a[href],
+  summary,
+  select:not(:disabled),
+  label[for] {
+    cursor: pointer;
+  }
+  code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em];
+  }
+}
+
+@layer components {
+  .page-header {
+    @apply mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between;
+  }
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  .page-description {
+    @apply mt-1 text-sm text-muted-foreground;
+  }
+  .content-grid {
+    @apply grid gap-4;
+  }
+  .stats-grid {
+    @apply grid gap-4 sm:grid-cols-2 xl:grid-cols-3;
+  }
+  .stat-label {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .stat-value {
+    @apply mt-2 block text-3xl font-semibold tracking-tight;
+  }
+  .form-grid {
+    @apply grid gap-5 md:grid-cols-2;
+  }
+  .field {
+    @apply grid gap-2;
+  }
+  .field-full {
+    @apply md:col-span-2;
+  }
+  .field-help {
+    @apply text-xs leading-5 text-muted-foreground;
+  }
+  .form-actions {
+    @apply mt-6 flex flex-wrap items-center gap-2;
+  }
+  .native-select {
+    @apply flex h-9 w-full appearance-none rounded-md border border-input bg-transparent;
+    @apply px-3 py-1 text-sm shadow-sm outline-none;
+    @apply focus-visible:ring-1 focus-visible:ring-ring;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .table-wrap {
+    @apply w-full overflow-x-auto;
+  }
+  .data-table {
+    @apply w-full caption-bottom text-sm;
+  }
+  .data-table thead {
+    @apply border-b;
+  }
+  .data-table th {
+    @apply h-11 px-4 text-left align-middle text-xs font-medium text-muted-foreground;
+  }
+  .data-table td {
+    @apply border-b px-4 py-3 align-middle;
+  }
+  .data-table tbody tr {
+    @apply transition-colors hover:bg-muted/50;
+  }
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .empty-state {
+    @apply flex min-h-40 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground;
+  }
+  .notice-error {
+    @apply mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700;
+  }
+  .notice-success {
+    @apply mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700;
+  }
+  .tab-list {
+    @apply inline-flex h-9 items-center rounded-lg bg-muted p-1 text-muted-foreground;
+  }
+  .tab-trigger {
+    @apply inline-flex h-7 items-center justify-center whitespace-nowrap rounded-md px-3 text-sm font-medium transition-all hover:text-foreground;
+  }
+  .tab-trigger-active {
+    @apply bg-background text-foreground shadow-sm;
+  }
+  .code-block {
+    @apply max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-neutral-950 p-4 font-mono text-xs leading-5 text-neutral-200;
+  }
+  .metric-card {
+    @apply min-h-28 rounded-lg border bg-muted/15 p-4;
+  }
+  .metric-value {
+    @apply mt-2 text-2xl font-semibold tracking-tight;
+  }
+  .metric-track {
+    @apply mt-3 h-1.5 overflow-hidden rounded-full bg-muted;
+  }
+  .metric-track span {
+    @apply block h-full rounded-full bg-foreground transition-[width] duration-300;
+  }
+  .log-console {
+    @apply m-0 h-[32rem] overflow-auto whitespace-pre-wrap break-words bg-neutral-950 p-5 font-mono text-xs leading-5 text-neutral-200;
+  }
+  .toast-item {
+    @apply pointer-events-auto flex items-start gap-3 rounded-lg border bg-background px-4 py-3 text-foreground shadow-lg shadow-black/10;
+  }
+  .toast-success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-800;
+  }
+  .toast-error {
+    @apply border-red-200 bg-red-50 text-red-800;
+  }
+  .toast-info {
+    @apply border-blue-200 bg-blue-50 text-blue-800;
+  }
+}

@@ -1,0 +1,50 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: paas
+      MYSQL_USER: paas
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      mysql: { condition: service_healthy }
+    environment:
+      PAAS_ADDR: :8080
+      PAAS_DATABASE_URL: paas:${MYSQL_PASSWORD}@tcp(mysql:3306)/paas?charset=utf8mb4&parseTime=True&loc=Local
+      PAAS_MASTER_KEY: ${PAAS_MASTER_KEY}
+      PAAS_PUBLIC_URL: ${PAAS_PUBLIC_URL}
+      PAAS_FRONTEND_URL: ${PAAS_FRONTEND_URL}
+      PAAS_SECURE_COOKIES: ${PAAS_SECURE_COOKIES:-true}
+      OAUTH_AUTH_URL: ${OAUTH_AUTH_URL:-https://id.zhengru.top/oauth2/authorize}
+      OAUTH_TOKEN_URL: ${OAUTH_TOKEN_URL:-https://id.zhengru.top/api/oauth2/token}
+      OAUTH_USER_URL: ${OAUTH_USER_URL:-https://id.zhengru.top/api/user}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      OAUTH_REDIRECT_URL: ${OAUTH_REDIRECT_URL}
+      OAUTH_SCOPE: ${OAUTH_SCOPE:-openid profile phone}
+      OAUTH_PHONE_PATH: ${OAUTH_PHONE_PATH:-phone}
+      ACR_REGISTRY: ${ACR_REGISTRY}
+      ACR_NAMESPACE: ${ACR_NAMESPACE}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - local-apps:/opt/paas/apps
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "${PAAS_HTTP_PORT:-8080}:80"
+volumes:
+  mysql-data:
+  local-apps:

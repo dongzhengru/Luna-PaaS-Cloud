@@ -1,0 +1,300 @@
+package github
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"golang.org/x/crypto/nacl/box"
+)
+
+const workflowPath = ".github/workflows/paas-build.yml"
+const workflowFile = "paas-build.yml"
+const marker = "# managed-by: luna-paas-cloud"
+const legacyMarker = "# managed-by: zhengru-paas"
+
+type Client struct {
+	Token string
+	HTTP  *http.Client
+}
+type Repo struct {
+	DefaultBranch string `json:"default_branch"`
+	Private       bool   `json:"private"`
+}
+type Content struct{ SHA, Content, Encoding string }
+type PublicKey struct {
+	KeyID string `json:"key_id"`
+	Key   string `json:"key"`
+}
+type Run struct {
+	ID         int64  `json:"id"`
+	RunAttempt int    `json:"run_attempt"`
+	HeadSHA    string `json:"head_sha"`
+	HeadBranch string `json:"head_branch"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	HTMLURL    string `json:"html_url"`
+}
+
+func New(token string) *Client {
+	return &Client{Token: token, HTTP: &http.Client{Timeout: 25 * time.Second}}
+}
+func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	var r io.Reader
+	if body != nil {
+		b, e := json.Marshal(body)
+		if e != nil {
+			return e
+		}
+		r = bytes.NewReader(b)
+	}
+	req, e := http.NewRequestWithContext(ctx, method, "https://api.github.com"+path, r)
+	if e != nil {
+		return e
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, e := c.HTTP.Do(req)
+	if e != nil {
+		return e
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("github %s: %s", resp.Status, string(data))
+	}
+	if out != nil && len(data) > 0 {
+		return json.Unmarshal(data, out)
+	}
+	return nil
+}
+func (c *Client) Repo(ctx context.Context, owner, repo string) (Repo, error) {
+	var x Repo
+	e := c.do(ctx, "GET", fmt.Sprintf("/repos/%s/%s", owner, repo), nil, &x)
+	return x, e
+}
+func (c *Client) Content(ctx context.Context, owner, repo, path, ref string) (Content, error) {
+	var x Content
+	p := fmt.Sprintf("/repos/%s/%s/contents/%s", owner, repo, path)
+	if ref != "" {
+		p += "?ref=" + url.QueryEscape(ref)
+	}
+	e := c.do(ctx, "GET", p, nil, &x)
+	return x, e
+}
+
+func (c *Client) PutWorkflow(
+	ctx context.Context,
+	owner, repo, branch, content, oldSHA string,
+) (string, error) {
+	body := map[string]any{
+		"message": "chore: configure Luna PaaS Cloud build [paas-skip]",
+		"content": base64.StdEncoding.EncodeToString([]byte(content)),
+		"branch":  branch,
+	}
+	if oldSHA != "" {
+		body["sha"] = oldSHA
+	}
+	var x struct {
+		Content struct {
+			SHA string `json:"sha"`
+		} `json:"content"`
+	}
+	e := c.do(
+		ctx,
+		"PUT",
+		fmt.Sprintf("/repos/%s/%s/contents/%s", owner, repo, workflowPath),
+		body,
+		&x,
+	)
+	return x.Content.SHA, e
+}
+func (c *Client) PutSecret(ctx context.Context, owner, repo, name, value string) error {
+	var k PublicKey
+	if e := c.do(ctx, "GET", fmt.Sprintf("/repos/%s/%s/actions/secrets/public-key", owner, repo), nil, &k); e != nil {
+		return e
+	}
+	raw, e := base64.StdEncoding.DecodeString(k.Key)
+	if e != nil || len(raw) != 32 {
+		return fmt.Errorf("invalid github public key")
+	}
+	var pub [32]byte
+	copy(pub[:], raw)
+	enc, e := box.SealAnonymous(nil, []byte(value), &pub, rand.Reader)
+	if e != nil {
+		return e
+	}
+	return c.do(
+		ctx,
+		"PUT",
+		fmt.Sprintf("/repos/%s/%s/actions/secrets/%s", owner, repo, name),
+		map[string]string{
+			"encrypted_value": base64.StdEncoding.EncodeToString(enc),
+			"key_id":          k.KeyID,
+		},
+		nil,
+	)
+}
+func (c *Client) Dispatch(ctx context.Context, owner, repo, branch string) error {
+	return c.do(
+		ctx,
+		"POST",
+		workflowEndpoint(owner, repo, "/dispatches"),
+		map[string]any{"ref": branch, "inputs": map[string]string{"initial_deploy": "true"}},
+		nil,
+	)
+}
+func (c *Client) Runs(ctx context.Context, owner, repo, branch string) ([]Run, error) {
+	var x struct {
+		WorkflowRuns []Run `json:"workflow_runs"`
+	}
+	p := workflowEndpoint(
+		owner,
+		repo,
+		"/runs",
+	) + "?branch=" + url.QueryEscape(
+		branch,
+	) + "&per_page=50"
+	e := c.do(ctx, "GET", p, nil, &x)
+	return x.WorkflowRuns, e
+}
+func workflowEndpoint(owner, repo, suffix string) string {
+	return fmt.Sprintf("/repos/%s/%s/actions/workflows/%s%s", owner, repo, workflowFile, suffix)
+}
+
+func Managed(content string) bool {
+	return strings.Contains(content, marker) || strings.Contains(content, legacyMarker)
+}
+func DecodeContent(c Content) (string, error) {
+	s := strings.ReplaceAll(c.Content, "\n", "")
+	b, e := base64.StdEncoding.DecodeString(s)
+	return string(b), e
+}
+
+type WorkflowInput struct{ AppID, AppType, RuntimeVersion, Branch, Dockerfile, Context, CallbackURL string }
+
+func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
+	switch appType {
+	case "vue":
+		return fmt.Sprintf(`      - uses: actions/setup-node@v4
+        with:
+          node-version: %q
+      - name: Build Vue application
+        working-directory: %q
+        run: |
+          npm ci
+          npm run build
+          printf '\n!dist/\n!dist/**\n' >> .dockerignore
+`, runtimeVersion, contextDir)
+	case "python":
+		return fmt.Sprintf(`      - uses: actions/setup-python@v5
+        with:
+          python-version: %q
+      - name: Validate Python application
+        working-directory: %q
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          python -m compileall .
+`, runtimeVersion, contextDir)
+	case "java":
+		return fmt.Sprintf(`      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: %q
+          cache: maven
+      - name: Build Java application
+        working-directory: %q
+        run: |
+          if [ -x ./mvnw ]; then
+            ./mvnw -B -DskipTests package
+          else
+            mvn -B -DskipTests package
+          fi
+          printf '\n!target/\n!target/*.jar\n' >> .dockerignore
+`, runtimeVersion, contextDir)
+	case "go":
+		versionConfig := "          go-version: " + fmt.Sprintf("%q", runtimeVersion)
+		if runtimeVersion == "go.mod" {
+			versionConfig = "          go-version-file: " + fmt.Sprintf(
+				"%q",
+				strings.TrimSuffix(contextDir, "/")+"/go.mod",
+			)
+		}
+		return fmt.Sprintf(`      - uses: actions/setup-go@v5
+        with:
+%s
+          cache: false
+      - name: Build Go application
+        working-directory: %q
+        run: |
+          go build -trimpath -o app .
+          printf '\n!app\n' >> .dockerignore
+`, versionConfig, contextDir)
+	default:
+		return ""
+	}
+}
+
+func Workflow(i WorkflowInput) string {
+	return fmt.Sprintf(`%s
+name: Luna PaaS Cloud Build
+on:
+  push:
+    branches: [%q]
+  workflow_dispatch:
+    inputs:
+      initial_deploy:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[paas-skip]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+%s      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.PAAS_ACR_REGISTRY }}
+          username: ${{ secrets.PAAS_ACR_USERNAME }}
+          password: ${{ secrets.PAAS_ACR_PASSWORD }}
+      - name: Compute image
+        id: image
+        shell: bash
+        run: echo "value=${{ secrets.PAAS_IMAGE_REPOSITORY }}:${GITHUB_SHA}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: %s
+          file: %s
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.image.outputs.value }}
+      - name: Notify Luna PaaS Cloud
+        if: always()
+        env:
+          CALLBACK_TOKEN: ${{ secrets.PAAS_CALLBACK_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          IMAGE: ${{ steps.image.outputs.value }}
+          INITIAL: ${{ inputs.initial_deploy || 'false' }}
+        shell: bash
+        run: |
+          payload=$(jq -n --arg repo "${GITHUB_REPOSITORY}" --arg ref "${GITHUB_REF_NAME}" --arg sha "${GITHUB_SHA}" --arg image "$IMAGE" --arg status "$JOB_STATUS" --arg initial "$INITIAL" --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{repository:$repo,ref:$ref,commit_sha:$sha,image:$image,status:$status,initial:($initial == "true"),run_id:$run_id,run_attempt:$attempt,html_url:("https://github.com/"+$repo+"/actions/runs/"+($run_id|tostring))}')
+          for delay in 0 2 5 10; do sleep "$delay"; curl --fail-with-body -sS -X POST -H "Authorization: Bearer $CALLBACK_TOKEN" -H "Content-Type: application/json" --data "$payload" %s && exit 0; done
+          exit 1
+`, marker, i.Branch, typeBuildSteps(i.AppType, i.RuntimeVersion, i.Context), i.Context, i.Dockerfile, i.CallbackURL)
+}
