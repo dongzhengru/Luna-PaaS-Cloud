@@ -45,11 +45,8 @@ func Load() (Config, error) {
 		OAuthRedirectURL:  os.Getenv("OAUTH_REDIRECT_URL"),
 		OAuthScope:        env("OAUTH_SCOPE", "openid profile"),
 		OAuthPhonePath:    env("OAUTH_PHONE_PATH", "phone"),
-		Registry: env(
-			"ACR_REGISTRY",
-			"crpi-0jp6jlx7y717gd46.cn-hangzhou.personal.cr.aliyuncs.com",
-		),
-		RegistryNamespace: env("ACR_NAMESPACE", "dzhengru"),
+		Registry: env("ACR_REGISTRY"),
+		RegistryNamespace: env("ACR_NAMESPACE"),
 		SecureCookies:     envBool("PAAS_SECURE_COOKIES", true),
 		SessionTTL:        12 * time.Hour,
 	}
