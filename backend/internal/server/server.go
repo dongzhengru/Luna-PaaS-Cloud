@@ -57,6 +57,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/logout", s.logout)
 	s.mux.HandleFunc("GET /api/settings", s.getSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.putSettings)
+	s.mux.HandleFunc("GET /api/github/repos", s.listGitHubRepos)
 	s.mux.HandleFunc("GET /api/nodes", s.listNodes)
 	s.mux.HandleFunc("POST /api/nodes", s.createNode)
 	s.mux.HandleFunc("POST /api/nodes/{id}/test", s.testNode)
@@ -322,6 +323,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.getSettings(w, r)
+}
+
+func (s *Server) listGitHubRepos(w http.ResponseWriter, r *http.Request) {
+	pat, e := s.setting("github_token")
+	if e != nil || pat == "" {
+		fail(w, http.StatusServiceUnavailable, "GitHub PAT is not configured")
+		return
+	}
+	repos, e := gh.New(pat).Repos(r.Context())
+	if e != nil {
+		fail(w, http.StatusBadGateway, fmt.Sprintf("cannot fetch GitHub repositories: %v", e))
+		return
+	}
+	jsonOut(w, http.StatusOK, repos)
 }
 
 func validateDingTalkWebhook(raw string) error {

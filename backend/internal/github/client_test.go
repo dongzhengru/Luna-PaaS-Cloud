@@ -1,11 +1,34 @@
 package github
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestRepos(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/repos" || r.URL.Query().Get("per_page") != "100" {
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Fatal("GitHub token was not sent")
+		}
+		_, _ = w.Write([]byte(`[{"name":"api","full_name":"octo/api","html_url":"https://github.com/octo/api","default_branch":"main","private":true}]`))
+	}))
+	defer server.Close()
+
+	client := New("token")
+	client.APIURL = server.URL
+	repos, err := client.Repos(context.Background())
+	if err != nil || len(repos) != 1 || repos[0].FullName != "octo/api" || !repos[0].Private {
+		t.Fatalf("got %#v, %v", repos, err)
+	}
+}
 
 func TestWorkflowContract(t *testing.T) {
 	w := Workflow(

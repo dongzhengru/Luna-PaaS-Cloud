@@ -22,10 +22,14 @@ const marker = "# managed-by: luna-paas-cloud"
 const legacyMarker = "# managed-by: zhengru-paas"
 
 type Client struct {
-	Token string
-	HTTP  *http.Client
+	Token  string
+	HTTP   *http.Client
+	APIURL string
 }
 type Repo struct {
+	Name          string `json:"name"`
+	FullName      string `json:"full_name"`
+	HTMLURL       string `json:"html_url"`
 	DefaultBranch string `json:"default_branch"`
 	Private       bool   `json:"private"`
 }
@@ -45,7 +49,7 @@ type Run struct {
 }
 
 func New(token string) *Client {
-	return &Client{Token: token, HTTP: &http.Client{Timeout: 25 * time.Second}}
+	return &Client{Token: token, HTTP: &http.Client{Timeout: 25 * time.Second}, APIURL: "https://api.github.com"}
 }
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
 	var r io.Reader
@@ -56,7 +60,11 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		}
 		r = bytes.NewReader(b)
 	}
-	req, e := http.NewRequestWithContext(ctx, method, "https://api.github.com"+path, r)
+	apiURL := strings.TrimRight(c.APIURL, "/")
+	if apiURL == "" {
+		apiURL = "https://api.github.com"
+	}
+	req, e := http.NewRequestWithContext(ctx, method, apiURL+path, r)
 	if e != nil {
 		return e
 	}
@@ -84,6 +92,21 @@ func (c *Client) Repo(ctx context.Context, owner, repo string) (Repo, error) {
 	var x Repo
 	e := c.do(ctx, "GET", fmt.Sprintf("/repos/%s/%s", owner, repo), nil, &x)
 	return x, e
+}
+func (c *Client) Repos(ctx context.Context) ([]Repo, error) {
+	var repos []Repo
+	for page := 1; page <= 10; page++ {
+		var batch []Repo
+		path := fmt.Sprintf("/user/repos?affiliation=owner,collaborator,organization&sort=full_name&direction=asc&per_page=100&page=%d", page)
+		if e := c.do(ctx, "GET", path, nil, &batch); e != nil {
+			return nil, e
+		}
+		repos = append(repos, batch...)
+		if len(batch) < 100 {
+			return repos, nil
+		}
+	}
+	return repos, nil
 }
 func (c *Client) Content(ctx context.Context, owner, repo, path, ref string) (Content, error) {
 	var x Content

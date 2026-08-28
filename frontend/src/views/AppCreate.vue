@@ -12,6 +12,9 @@ import { toast } from '@/lib/toast'
 
 const router = useRouter(),
   nodes = ref<any[]>([]),
+  repos = ref<any[]>([]),
+  reposLoading = ref(false),
+  reposError = ref(''),
   error = ref(''),
   busy = ref(false)
 const versions: Record<string, string[]> = {
@@ -43,7 +46,31 @@ watch(
   () => f.type,
   (type) => (f.runtime_version = defaults[type]),
 )
-onMounted(async () => (nodes.value = await api('/nodes')))
+onMounted(async () => {
+  try {
+    const [loadedNodes, loadedRepos] = await Promise.all([api('/nodes'), loadRepos()])
+    nodes.value = loadedNodes
+    repos.value = loadedRepos
+  } catch (e: any) {
+    error.value = e.message
+  }
+})
+async function loadRepos() {
+  reposLoading.value = true
+  reposError.value = ''
+  try {
+    return await api('/github/repos')
+  } catch (e: any) {
+    reposError.value = e.message
+    return []
+  } finally {
+    reposLoading.value = false
+  }
+}
+function selectRepo() {
+  const repo = repos.value.find((item) => item.html_url === f.repo_url)
+  if (repo && !f.branch) f.branch = repo.default_branch
+}
 async function submit() {
   error.value = ''
   busy.value = true
@@ -154,8 +181,25 @@ async function submit() {
               <Label>目标分支</Label><Input v-model="f.branch" placeholder="留空使用默认分支" />
             </div>
             <div class="field field-full">
-              <Label>GitHub 仓库地址</Label
-              ><Input v-model="f.repo_url" required placeholder="https://github.com/owner/repo" />
+              <div class="flex items-center justify-between gap-3">
+                <Label>GitHub 仓库</Label>
+                <button
+                  type="button"
+                  class="text-sm text-primary hover:underline disabled:opacity-50"
+                  :disabled="reposLoading"
+                  @click="loadRepos().then((items) => (repos = items))"
+                >
+                  {{ reposLoading ? '正在获取…' : '刷新列表' }}
+                </button>
+              </div>
+              <select v-model="f.repo_url" class="native-select" required :disabled="reposLoading" @change="selectRepo">
+                <option value="" disabled>{{ reposLoading ? '正在获取仓库…' : '请选择 GitHub 仓库' }}</option>
+                <option v-for="repo in repos" :key="repo.html_url" :value="repo.html_url">
+                  {{ repo.full_name }}{{ repo.private ? '（私有）' : '' }}
+                </option>
+              </select>
+              <p v-if="reposError" class="field-help text-destructive">获取仓库失败：{{ reposError }}</p>
+              <p v-else-if="!reposLoading && !repos.length" class="field-help">暂无可访问仓库，请检查 GitHub PAT 的仓库权限。</p>
             </div></div></CardContent
       ></Card>
 
