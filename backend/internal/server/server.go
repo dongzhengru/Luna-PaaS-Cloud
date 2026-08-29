@@ -1283,13 +1283,24 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "failed"
 	}
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		if pat, tokenErr := s.setting("github_token"); tokenErr == nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			run, runErr := gh.New(pat).Run(ctx, a.RepoOwner, a.RepoName, in.RunID)
+			cancel()
+			if runErr == nil {
+				title = strings.TrimSpace(run.DisplayTitle)
+			}
+		}
+	}
 	b := model.Build{
 		Base:       model.Base{ID: id()},
 		AppID:      a.ID,
 		RunID:      in.RunID,
 		RunAttempt: in.RunAttempt,
 		CommitSHA:  in.CommitSHA,
-		Title:      in.Title,
+		Title:      title,
 		Ref:        in.Ref,
 		Image:      in.Image,
 		Status:     status,
@@ -1302,9 +1313,9 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, res.Error)
 		return
 	}
-	if in.Title != "" {
-		s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", in.Title)
-		b.Title = in.Title
+	if title != "" {
+		s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", title)
+		b.Title = title
 	}
 	if b.Status == "succeeded" && in.Initial && a.InitialDeployPending {
 		a.InitialDeployPending = false

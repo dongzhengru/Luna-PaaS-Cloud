@@ -197,6 +197,15 @@ func (c *Client) Runs(ctx context.Context, owner, repo, branch string) ([]Run, e
 	return x.WorkflowRuns, e
 }
 
+func (c *Client) Run(ctx context.Context, owner, repo string, runID int64) (Run, error) {
+	var run Run
+	if runID < 1 {
+		return run, fmt.Errorf("invalid workflow run id")
+	}
+	err := c.do(ctx, "GET", fmt.Sprintf("/repos/%s/%s/actions/runs/%d", owner, repo, runID), nil, &run)
+	return run, err
+}
+
 // Logs downloads a workflow run's archived logs and returns their text without
 // retaining it. GitHub responds with a short-lived redirect to the archive.
 func (c *Client) Logs(ctx context.Context, owner, repo string, runID int64) (string, bool, error) {

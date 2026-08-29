@@ -584,7 +584,7 @@ onUnmounted(() => {
               <tbody>
                 <tr v-for="b in builds" :key="b.id">
                   <td class="max-w-80 truncate" :title="b.title || b.commit_sha">
-                    {{ b.title || '未获取到构建名称' }}
+                    {{ b.title || `提交 ${b.commit_sha?.slice(0, 8) || '—'}` }}
                   </td>
                   <td>
                     <a
