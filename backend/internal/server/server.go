@@ -1279,7 +1279,7 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "callback metadata mismatch")
 		return
 	}
-	status := map[string]string{"success": "succeeded", "failure": "failed", "cancelled": "failed"}[in.Status]
+	status := map[string]string{"success": "succeeded", "failure": "failed", "cancelled": "failed", "skipped": "skipped"}[in.Status]
 	if status == "" {
 		status = "failed"
 	}
@@ -1542,9 +1542,9 @@ func (s *Server) syncBuilds(w http.ResponseWriter, r *http.Request) {
 		if run.Status != "completed" {
 			continue
 		}
-		status := "failed"
-		if run.Conclusion == "success" {
-			status = "succeeded"
+		status := map[string]string{"success": "succeeded", "skipped": "skipped"}[run.Conclusion]
+		if status == "" {
+			status = "failed"
 		}
 		image := fmt.Sprintf(
 			"%s/%s/%s:%s-%d",
@@ -1568,8 +1568,18 @@ func (s *Server) syncBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 		res := s.db.Where("app_id = ? AND run_id = ? AND run_attempt = ?", a.ID, run.ID, run.RunAttempt).
 			FirstOrCreate(&b)
-		if res.Error == nil && run.DisplayTitle != "" {
-			s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", run.DisplayTitle)
+		if res.Error == nil {
+			updates := map[string]any{
+				"commit_sha": run.HeadSHA,
+				"ref":        run.HeadBranch,
+				"image":      image,
+				"status":     status,
+				"html_url":   run.HTMLURL,
+			}
+			if run.DisplayTitle != "" {
+				updates["title"] = run.DisplayTitle
+			}
+			s.db.Model(&model.Build{}).Where("id = ?", b.ID).Updates(updates)
 		}
 		if res.Error == nil && res.RowsAffected > 0 {
 			created++
