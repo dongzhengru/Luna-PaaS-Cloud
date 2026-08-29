@@ -321,10 +321,11 @@ type WorkflowInput struct{ AppID, AppType, RuntimeVersion, Branch, Dockerfile, C
 func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
 	switch appType {
 	case "vue":
-		return fmt.Sprintf(`      - uses: actions/setup-node@v4
+		return fmt.Sprintf(`      - name: 配置 Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: %q
-      - name: Build Vue application
+      - name: 构建 Vue 应用
         working-directory: %q
         run: |
           npm ci
@@ -332,22 +333,24 @@ func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
           printf '\n!dist/\n!dist/**\n' >> .dockerignore
 `, runtimeVersion, contextDir)
 	case "python":
-		return fmt.Sprintf(`      - uses: actions/setup-python@v5
+		return fmt.Sprintf(`      - name: 配置 Python
+        uses: actions/setup-python@v5
         with:
           python-version: %q
-      - name: Validate Python application
+      - name: 校验 Python 应用
         working-directory: %q
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           python -m compileall .
 `, runtimeVersion, contextDir)
 	case "java":
-		return fmt.Sprintf(`      - uses: actions/setup-java@v4
+		return fmt.Sprintf(`      - name: 配置 Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: %q
           cache: maven
-      - name: Build Java application
+      - name: 构建 Java 应用
         working-directory: %q
         run: |
           if [ -x ./mvnw ]; then
@@ -365,11 +368,12 @@ func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
 				strings.TrimSuffix(contextDir, "/")+"/go.mod",
 			)
 		}
-		return fmt.Sprintf(`      - uses: actions/setup-go@v5
+		return fmt.Sprintf(`      - name: 配置 Go
+        uses: actions/setup-go@v5
         with:
 %s
           cache: false
-      - name: Build Go application
+      - name: 构建 Go 应用
         working-directory: %q
         run: |
           mapfile -t main_packages < <(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./... | sed '/^$/d')
@@ -388,7 +392,7 @@ func typeBuildSteps(appType, runtimeVersion, contextDir string) string {
 
 func Workflow(i WorkflowInput) string {
 	return fmt.Sprintf(`%s
-name: Luna PaaS Cloud Build
+name: Luna PaaS Cloud 应用构建
 on:
   push:
     branches: [%q]
@@ -400,22 +404,43 @@ on:
 permissions:
   contents: read
 jobs:
-  build:
+  prepare:
+    name: 准备构建环境
     if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[paas-skip]')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-%s      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: 检出源代码
+        uses: actions/checkout@v4
+      - name: 校验构建配置
+        env:
+          DOCKERFILE: %s
+          BUILD_CONTEXT: %s
+        run: |
+          test -f "$DOCKERFILE"
+          test -d "$BUILD_CONTEXT"
+  build:
+    name: 构建并推送镜像
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.value }}
+    steps:
+      - name: 检出源代码
+        uses: actions/checkout@v4
+%s      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: 登录容器镜像仓库
+        uses: docker/login-action@v3
         with:
           registry: ${{ secrets.PAAS_ACR_REGISTRY }}
           username: ${{ secrets.PAAS_ACR_USERNAME }}
           password: ${{ secrets.PAAS_ACR_PASSWORD }}
-      - name: Compute image
+      - name: 生成镜像标签
         id: image
         shell: bash
         run: echo "value=${{ secrets.PAAS_IMAGE_REPOSITORY }}:${GITHUB_SHA}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
         with:
           context: %s
           file: %s
@@ -423,12 +448,19 @@ jobs:
           provenance: false
           sbom: false
           tags: ${{ steps.image.outputs.value }}
-      - name: Notify Luna PaaS Cloud
-        if: always()
+  notify:
+    name: 同步构建结果
+    needs: [prepare, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源代码
+        uses: actions/checkout@v4
+      - name: 通知 Luna PaaS Cloud
         env:
           CALLBACK_TOKEN: ${{ secrets.PAAS_CALLBACK_TOKEN }}
-          JOB_STATUS: ${{ job.status }}
-          IMAGE: ${{ steps.image.outputs.value }}
+          JOB_STATUS: ${{ needs.prepare.result == 'failure' && 'failure' || needs.prepare.result == 'cancelled' && 'cancelled' || needs.build.result }}
+          IMAGE: ${{ needs.build.outputs.image }}
           INITIAL: ${{ inputs.initial_deploy || 'false' }}
         shell: bash
         run: |
@@ -436,5 +468,5 @@ jobs:
           payload=$(jq -n --arg repo "${GITHUB_REPOSITORY}" --arg ref "${GITHUB_REF_NAME}" --arg sha "${GITHUB_SHA}" --arg title "$title" --arg image "$IMAGE" --arg status "$JOB_STATUS" --arg initial "$INITIAL" --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{repository:$repo,ref:$ref,commit_sha:$sha,title:$title,image:$image,status:$status,initial:($initial == "true"),run_id:$run_id,run_attempt:$attempt,html_url:("https://github.com/"+$repo+"/actions/runs/"+($run_id|tostring))}')
           for delay in 0 2 5 10; do sleep "$delay"; curl --fail-with-body -sS -X POST -H "Authorization: Bearer $CALLBACK_TOKEN" -H "Content-Type: application/json" --data "$payload" %s && exit 0; done
           exit 1
-`, marker, i.Branch, typeBuildSteps(i.AppType, i.RuntimeVersion, i.Context), i.Context, i.Dockerfile, i.CallbackURL)
+`, marker, i.Branch, i.Dockerfile, i.Context, typeBuildSteps(i.AppType, i.RuntimeVersion, i.Context), i.Context, i.Dockerfile, i.CallbackURL)
 }

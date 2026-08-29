@@ -71,7 +71,7 @@ func TestWorkflowContract(t *testing.T) {
 	)
 	wants := []string{
 		marker,
-		"name: Luna PaaS Cloud Build",
+		"name: Luna PaaS Cloud 应用构建",
 		"workflow_dispatch",
 		"[paas-skip]",
 		"secrets.PAAS_ACR_REGISTRY",
@@ -81,6 +81,11 @@ func TestWorkflowContract(t *testing.T) {
 		"provenance: false",
 		"sbom: false",
 		"if: always()",
+		"name: 准备构建环境",
+		"name: 构建并推送镜像",
+		"name: 同步构建结果",
+		"name: 检出源代码",
+		"JOB_STATUS: ${{ needs.prepare.result",
 		"https://paas.example/cb",
 	}
 	for _, want := range wants {
