@@ -1,6 +1,7 @@
 package github
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,13 +41,14 @@ type PublicKey struct {
 	Key   string `json:"key"`
 }
 type Run struct {
-	ID         int64  `json:"id"`
-	RunAttempt int    `json:"run_attempt"`
-	HeadSHA    string `json:"head_sha"`
-	HeadBranch string `json:"head_branch"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	HTMLURL    string `json:"html_url"`
+	ID           int64  `json:"id"`
+	RunAttempt   int    `json:"run_attempt"`
+	HeadSHA      string `json:"head_sha"`
+	HeadBranch   string `json:"head_branch"`
+	Status       string `json:"status"`
+	Conclusion   string `json:"conclusion"`
+	HTMLURL      string `json:"html_url"`
+	DisplayTitle string `json:"display_title"`
 }
 
 func New(token string) *Client {
@@ -193,6 +196,104 @@ func (c *Client) Runs(ctx context.Context, owner, repo, branch string) ([]Run, e
 	e := c.do(ctx, "GET", p, nil, &x)
 	return x.WorkflowRuns, e
 }
+
+// Logs downloads a workflow run's archived logs and returns their text without
+// retaining it. GitHub responds with a short-lived redirect to the archive.
+func (c *Client) Logs(ctx context.Context, owner, repo string, runID int64) (string, bool, error) {
+	if runID < 1 {
+		return "", false, fmt.Errorf("invalid workflow run id")
+	}
+	client := *c.HTTP
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.APIURL, "/")+fmt.Sprintf("/repos/%s/%s/actions/runs/%d/logs", owner, repo, runID), nil)
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		return "", false, fmt.Errorf("github %s: %s", resp.Status, string(body))
+	}
+	location, err := resp.Location()
+	if err != nil {
+		return "", false, fmt.Errorf("github logs redirect: %w", err)
+	}
+	downloadReq, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
+	if err != nil {
+		return "", false, err
+	}
+	downloadClient := *c.HTTP
+	download, err := downloadClient.Do(downloadReq)
+	if err != nil {
+		return "", false, err
+	}
+	defer download.Body.Close()
+	if download.StatusCode < 200 || download.StatusCode >= 300 {
+		return "", false, fmt.Errorf("github log archive %s", download.Status)
+	}
+	const maxArchiveSize = 32 << 20
+	archive, err := io.ReadAll(io.LimitReader(download.Body, maxArchiveSize+1))
+	if err != nil {
+		return "", false, err
+	}
+	if len(archive) > maxArchiveSize {
+		return "", false, fmt.Errorf("github log archive exceeds 32 MiB")
+	}
+	return unzipLogs(archive)
+}
+
+func unzipLogs(archive []byte) (string, bool, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return "", false, fmt.Errorf("invalid github log archive: %w", err)
+	}
+	files := append([]*zip.File(nil), zr.File...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	const maxLogSize = 8 << 20
+	var out strings.Builder
+	truncated := false
+	for _, file := range files {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		if out.Len() >= maxLogSize {
+			truncated = true
+			continue
+		}
+		reader, err := file.Open()
+		if err != nil {
+			return "", false, err
+		}
+		remaining := maxLogSize - out.Len()
+		contents, readErr := io.ReadAll(io.LimitReader(reader, int64(remaining)+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return "", false, readErr
+		}
+		if closeErr != nil {
+			return "", false, closeErr
+		}
+		if len(files) > 1 {
+			out.WriteString("\n===== " + file.Name + " =====\n")
+		}
+		if len(contents) > remaining {
+			contents = contents[:remaining]
+			truncated = true
+		}
+		out.Write(contents)
+	}
+	if truncated {
+		out.WriteString("\n\n[日志过大，已截断为前 8 MiB]\n")
+	}
+	return out.String(), truncated, nil
+}
 func workflowEndpoint(owner, repo, suffix string) string {
 	return fmt.Sprintf("/repos/%s/%s/actions/workflows/%s%s", owner, repo, workflowFile, suffix)
 }
@@ -322,7 +423,8 @@ jobs:
           INITIAL: ${{ inputs.initial_deploy || 'false' }}
         shell: bash
         run: |
-          payload=$(jq -n --arg repo "${GITHUB_REPOSITORY}" --arg ref "${GITHUB_REF_NAME}" --arg sha "${GITHUB_SHA}" --arg image "$IMAGE" --arg status "$JOB_STATUS" --arg initial "$INITIAL" --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{repository:$repo,ref:$ref,commit_sha:$sha,image:$image,status:$status,initial:($initial == "true"),run_id:$run_id,run_attempt:$attempt,html_url:("https://github.com/"+$repo+"/actions/runs/"+($run_id|tostring))}')
+          title=$(git log -1 --format=%%s)
+          payload=$(jq -n --arg repo "${GITHUB_REPOSITORY}" --arg ref "${GITHUB_REF_NAME}" --arg sha "${GITHUB_SHA}" --arg title "$title" --arg image "$IMAGE" --arg status "$JOB_STATUS" --arg initial "$INITIAL" --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" '{repository:$repo,ref:$ref,commit_sha:$sha,title:$title,image:$image,status:$status,initial:($initial == "true"),run_id:$run_id,run_attempt:$attempt,html_url:("https://github.com/"+$repo+"/actions/runs/"+($run_id|tostring))}')
           for delay in 0 2 5 10; do sleep "$delay"; curl --fail-with-body -sS -X POST -H "Authorization: Bearer $CALLBACK_TOKEN" -H "Content-Type: application/json" --data "$payload" %s && exit 0; done
           exit 1
 `, marker, i.Branch, typeBuildSteps(i.AppType, i.RuntimeVersion, i.Context), i.Context, i.Dockerfile, i.CallbackURL)

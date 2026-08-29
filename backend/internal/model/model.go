@@ -82,6 +82,7 @@ type Build struct {
 	RunID      int64  `gorm:"uniqueIndex:run_attempt"         json:"run_id"`
 	RunAttempt int    `gorm:"uniqueIndex:run_attempt"         json:"run_attempt"`
 	CommitSHA  string `                                       json:"commit_sha"`
+	Title      string `gorm:"type:text"                       json:"title"`
 	Ref        string `                                       json:"ref"`
 	Image      string `                                       json:"image"`
 	Status     string `gorm:"index"                           json:"status"`

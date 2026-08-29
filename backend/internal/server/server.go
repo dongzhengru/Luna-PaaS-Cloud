@@ -71,6 +71,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/apps/{id}", s.deleteApp)
 	s.mux.HandleFunc("POST /api/apps/{id}/initialize", s.retryInitialize)
 	s.mux.HandleFunc("GET /api/apps/{id}/builds", s.listBuilds)
+	s.mux.HandleFunc("GET /api/apps/{id}/builds/{build}/logs", s.buildLogs)
 	s.mux.HandleFunc("GET /api/apps/{id}/releases", s.listReleases)
 	s.mux.HandleFunc("POST /api/apps/{id}/releases", s.createRelease)
 	s.mux.HandleFunc("POST /api/apps/{id}/releases/{release}/rollback", s.rollback)
@@ -1200,6 +1201,31 @@ func (s *Server) listBuilds(w http.ResponseWriter, r *http.Request) {
 	s.db.Where("app_id = ?", r.PathValue("id")).Order("created_at desc").Find(&x)
 	jsonOut(w, 200, x)
 }
+func (s *Server) buildLogs(w http.ResponseWriter, r *http.Request) {
+	var a model.App
+	if s.db.First(&a, "id = ?", r.PathValue("id")).Error != nil {
+		fail(w, 404, "app not found")
+		return
+	}
+	var b model.Build
+	if s.db.Where("id = ? AND app_id = ?", r.PathValue("build"), a.ID).First(&b).Error != nil {
+		fail(w, 404, "build not found")
+		return
+	}
+	pat, err := s.setting("github_token")
+	if err != nil {
+		fail(w, 400, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	logs, truncated, err := gh.New(pat).Logs(ctx, a.RepoOwner, a.RepoName, b.RunID)
+	if err != nil {
+		fail(w, 502, err)
+		return
+	}
+	jsonOut(w, 200, map[string]any{"logs": logs, "truncated": truncated})
+}
 func (s *Server) listReleases(w http.ResponseWriter, r *http.Request) {
 	var x []model.Release
 	s.db.Where("app_id = ?", r.PathValue("id")).Order("created_at desc").Find(&x)
@@ -1218,6 +1244,7 @@ type callbackInput struct {
 	Repository string `json:"repository"`
 	Ref        string `json:"ref"`
 	CommitSHA  string `json:"commit_sha"`
+	Title      string `json:"title"`
 	Image      string `json:"image"`
 	Status     string `json:"status"`
 	HTMLURL    string `json:"html_url"`
@@ -1262,6 +1289,7 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 		RunID:      in.RunID,
 		RunAttempt: in.RunAttempt,
 		CommitSHA:  in.CommitSHA,
+		Title:      in.Title,
 		Ref:        in.Ref,
 		Image:      in.Image,
 		Status:     status,
@@ -1273,6 +1301,10 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 	if res.Error != nil {
 		fail(w, 500, res.Error)
 		return
+	}
+	if in.Title != "" {
+		s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", in.Title)
+		b.Title = in.Title
 	}
 	if b.Status == "succeeded" && in.Initial && a.InitialDeployPending {
 		a.InitialDeployPending = false
@@ -1517,6 +1549,7 @@ func (s *Server) syncBuilds(w http.ResponseWriter, r *http.Request) {
 			RunID:      run.ID,
 			RunAttempt: run.RunAttempt,
 			CommitSHA:  run.HeadSHA,
+			Title:      run.DisplayTitle,
 			Ref:        run.HeadBranch,
 			Image:      image,
 			Status:     status,
@@ -1524,6 +1557,9 @@ func (s *Server) syncBuilds(w http.ResponseWriter, r *http.Request) {
 		}
 		res := s.db.Where("app_id = ? AND run_id = ? AND run_attempt = ?", a.ID, run.ID, run.RunAttempt).
 			FirstOrCreate(&b)
+		if res.Error == nil && run.DisplayTitle != "" {
+			s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", run.DisplayTitle)
+		}
 		if res.Error == nil && res.RowsAffected > 0 {
 			created++
 		}

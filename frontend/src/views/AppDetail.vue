@@ -63,6 +63,11 @@ const metrics = ref<any>(),
   logError = ref(''),
   logStatus = ref('disconnected'),
   followLogs = ref(true),
+  buildLogsOpen = ref(false),
+  buildLogs = ref(''),
+  buildLogsError = ref(''),
+  buildLogsLoading = ref(false),
+  selectedBuild = ref<any>(),
   logBox = ref<HTMLElement | null>(null)
 let logDecoder = new TextDecoder()
 async function load() {
@@ -152,6 +157,24 @@ async function sync() {
     toast.error(`同步失败：${e.message}`)
   } finally {
     busyAction.value = ''
+  }
+}
+async function showBuildLogs(build: any) {
+  selectedBuild.value = build
+  buildLogs.value = ''
+  buildLogsError.value = ''
+  buildLogsOpen.value = true
+  buildLogsLoading.value = true
+  try {
+    const result = await api<{ logs: string; truncated: boolean }>(
+      `/apps/${id}/builds/${build.id}/logs`,
+    )
+    buildLogs.value = result.logs
+    if (result.truncated) toast.error('构建日志过大，已显示前 8 MiB')
+  } catch (e: any) {
+    buildLogsError.value = e.message
+  } finally {
+    buildLogsLoading.value = false
   }
 }
 function cloneArray(value: any) {
@@ -325,7 +348,14 @@ onUnmounted(() => {
           <Badge :variant="statusVariant(app.status)">{{ app.status }}</Badge>
         </div>
         <p class="page-description">
-          {{ app.type }} {{ app.runtime_version }} · {{ app.repo_owner }}/{{ app.repo_name }}
+          {{ app.type }} {{ app.runtime_version }} ·
+          <a
+            class="hover:underline"
+            :href="`https://github.com/${app.repo_owner}/${app.repo_name}`"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ app.repo_owner }}/{{ app.repo_name }}</a
+          >
         </p>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -544,6 +574,7 @@ onUnmounted(() => {
             <table class="data-table">
               <thead>
                 <tr>
+                  <th>构建名称</th>
                   <th>版本</th>
                   <th>状态</th>
                   <th>时间</th>
@@ -552,6 +583,9 @@ onUnmounted(() => {
               </thead>
               <tbody>
                 <tr v-for="b in builds" :key="b.id">
+                  <td class="max-w-80 truncate" :title="b.title || b.commit_sha">
+                    {{ b.title || '未获取到构建名称' }}
+                  </td>
                   <td>
                     <a
                       class="inline-flex items-center gap-2 font-medium hover:underline"
@@ -568,13 +602,20 @@ onUnmounted(() => {
                   </td>
                   <td class="text-muted-foreground">{{ fmt(b.created_at) }}</td>
                   <td class="text-right">
-                    <Button
-                      v-if="b.status === 'succeeded'"
-                      size="sm"
-                      :disabled="busyAction === `release:${b.id}`"
-                      @click="release(b)"
-                      ><Rocket />{{ busyAction === `release:${b.id}` ? '提交中' : '发布' }}</Button
-                    >
+                    <div class="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" @click="showBuildLogs(b)">
+                        查看日志
+                      </Button>
+                      <Button
+                        v-if="b.status === 'succeeded'"
+                        size="sm"
+                        :disabled="busyAction === `release:${b.id}`"
+                        @click="release(b)"
+                        ><Rocket />{{
+                          busyAction === `release:${b.id}` ? '提交中' : '发布'
+                        }}</Button
+                      >
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -816,5 +857,37 @@ onUnmounted(() => {
         </template>
       </CardContent>
     </Card>
+    <div
+      v-if="buildLogsOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="buildLogsOpen = false"
+    >
+      <section
+        class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border bg-background shadow-xl"
+      >
+        <header class="flex items-center justify-between border-b px-5 py-3">
+          <div>
+            <h2 class="font-semibold">构建日志</h2>
+            <p class="text-xs text-muted-foreground">
+              {{ selectedBuild?.title || selectedBuild?.commit_sha }}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="关闭构建日志"
+            @click="buildLogsOpen = false"
+            ><X
+          /></Button>
+        </header>
+        <div class="overflow-auto p-5">
+          <p v-if="buildLogsLoading" class="text-sm text-muted-foreground">
+            正在从 GitHub 获取日志…
+          </p>
+          <p v-else-if="buildLogsError" class="notice-error">{{ buildLogsError }}</p>
+          <pre v-else class="code-block max-h-[70vh]">{{ buildLogs || '暂无日志' }}</pre>
+        </div>
+      </section>
+    </div>
   </div>
 </template>

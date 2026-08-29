@@ -1,6 +1,8 @@
 package github
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,31 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestUnzipLogs(t *testing.T) {
+	var archive bytes.Buffer
+	w := zip.NewWriter(&archive)
+	for name, text := range map[string]string{"2_build.txt": "build output", "1_setup.txt": "setup output"} {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	logs, truncated, err := unzipLogs(archive.Bytes())
+	if err != nil || truncated {
+		t.Fatalf("got truncated=%v, err=%v", truncated, err)
+	}
+	if !strings.Contains(logs, "===== 1_setup.txt =====\nsetup output") || !strings.Contains(logs, "===== 2_build.txt =====\nbuild output") {
+		t.Fatalf("unexpected logs: %q", logs)
+	}
+}
 
 func TestRepos(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
