@@ -422,8 +422,6 @@ jobs:
     name: 构建并推送镜像
     needs: prepare
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.image.outputs.value }}
     steps:
       - name: 检出源代码
         uses: actions/checkout@v4
@@ -460,7 +458,7 @@ jobs:
         env:
           CALLBACK_TOKEN: ${{ secrets.PAAS_CALLBACK_TOKEN }}
           JOB_STATUS: ${{ needs.prepare.result == 'failure' && 'failure' || needs.prepare.result == 'cancelled' && 'cancelled' || needs.build.result }}
-          IMAGE: ${{ needs.build.outputs.image }}
+          IMAGE: ${{ needs.build.result == 'success' && format('{0}:{1}-{2}', secrets.PAAS_IMAGE_REPOSITORY, github.sha, github.run_id) || '' }}
           INITIAL: ${{ inputs.initial_deploy || 'false' }}
         shell: bash
         run: |

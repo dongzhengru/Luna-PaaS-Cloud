@@ -1283,6 +1283,12 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "failed"
 	}
+	image := strings.TrimSpace(in.Image)
+	buildError := ""
+	if status == "succeeded" && image == "" {
+		status = "failed"
+		buildError = "GitHub Actions did not return an image tag"
+	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		if pat, tokenErr := s.setting("github_token"); tokenErr == nil {
@@ -1302,10 +1308,11 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 		CommitSHA:  in.CommitSHA,
 		Title:      title,
 		Ref:        in.Ref,
-		Image:      in.Image,
+		Image:      image,
 		Status:     status,
 		Initial:    in.Initial,
 		HTMLURL:    in.HTMLURL,
+		Error:      buildError,
 	}
 	res := s.db.Where("app_id = ? AND run_id = ? AND run_attempt = ?", a.ID, in.RunID, in.RunAttempt).
 		FirstOrCreate(&b)
@@ -1313,11 +1320,27 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, res.Error)
 		return
 	}
+	updates := map[string]any{
+		"commit_sha": in.CommitSHA,
+		"ref":        in.Ref,
+		"image":      image,
+		"status":     status,
+		"initial":    in.Initial,
+		"html_url":   in.HTMLURL,
+		"error":      buildError,
+	}
 	if title != "" {
-		s.db.Model(&model.Build{}).Where("id = ?", b.ID).Update("title", title)
+		updates["title"] = title
+	}
+	if e := s.db.Model(&model.Build{}).Where("id = ?", b.ID).Updates(updates).Error; e != nil {
+		fail(w, 500, e)
+		return
+	}
+	b.Status, b.Image, b.Initial = status, image, in.Initial
+	if title != "" {
 		b.Title = title
 	}
-	if b.Status == "succeeded" && in.Initial && a.InitialDeployPending {
+	if status == "succeeded" && image != "" && in.Initial && a.InitialDeployPending {
 		a.InitialDeployPending = false
 		s.db.Save(&a)
 		t := s.newRelease(a, b, "")
@@ -1350,6 +1373,10 @@ func (s *Server) createRelease(w http.ResponseWriter, r *http.Request) {
 		First(&b).
 		Error != nil {
 		fail(w, 400, "successful build not found")
+		return
+	}
+	if strings.TrimSpace(b.Image) == "" {
+		fail(w, 400, "build image is unavailable")
 		return
 	}
 	rel := s.newRelease(a, b, "")

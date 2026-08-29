@@ -86,6 +86,7 @@ func TestWorkflowContract(t *testing.T) {
 		"name: 同步构建结果",
 		"name: 检出源代码",
 		"JOB_STATUS: ${{ needs.prepare.result",
+		"IMAGE: ${{ needs.build.result == 'success' && format",
 		"https://paas.example/cb",
 	}
 	for _, want := range wants {
