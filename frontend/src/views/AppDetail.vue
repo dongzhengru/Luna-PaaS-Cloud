@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { isAdmin } from '@/auth'
+import LogPanel from '@/components/LogPanel.vue'
+import { LogDecoder } from '@/lib/logs'
 import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -70,7 +72,7 @@ const metrics = ref<any>(),
   buildLogsLoading = ref(false),
   selectedBuild = ref<any>(),
   logBox = ref<HTMLElement | null>(null)
-let logDecoder = new TextDecoder()
+let logDecoder = new LogDecoder()
 async function load() {
   try {
     ;[app.value, builds.value, releases.value, nodes.value] = await Promise.all([
@@ -273,7 +275,7 @@ function stopLogs() {
 function startLogs() {
   stopLogs()
   logs.value = ''
-  logDecoder = new TextDecoder()
+  logDecoder = new LogDecoder()
   logError.value = ''
   logStatus.value = 'connecting'
   const source = new EventSource(`/api/apps/${id}/logs?tail=300`)
@@ -285,7 +287,7 @@ function startLogs() {
     try {
       const raw = atob(event.data),
         bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0))
-      logs.value += logDecoder.decode(bytes, { stream: true })
+      logs.value += logDecoder.decode(bytes)
       if (logs.value.length > 500_000) logs.value = logs.value.slice(-500_000)
       if (followLogs.value) {
         await nextTick()
@@ -531,39 +533,43 @@ onUnmounted(() => {
         </template>
 
         <template v-else-if="tab === 'logs'">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-3">
-            <div class="flex items-center gap-2 text-sm">
-              <span
-                :class="[
-                  'size-2 rounded-full',
+          <LogPanel :title="`${app.name} · 实时日志`">
+            <template #toolbar>
+              <div class="flex items-center gap-2 text-sm">
+                <span
+                  :class="[
+                    'size-2 rounded-full',
+                    logStatus === 'connected'
+                      ? 'bg-emerald-500'
+                      : logStatus === 'connecting'
+                        ? 'animate-pulse bg-amber-500'
+                        : 'bg-muted-foreground/50',
+                  ]"
+                />{{
                   logStatus === 'connected'
-                    ? 'bg-emerald-500'
+                    ? '实时连接'
                     : logStatus === 'connecting'
-                      ? 'animate-pulse bg-amber-500'
-                      : 'bg-muted-foreground/50',
-                ]"
-              />{{
-                logStatus === 'connected'
-                  ? '实时连接'
-                  : logStatus === 'connecting'
-                    ? '正在连接'
-                    : '已断开'
-              }}
-            </div>
-            <div class="flex gap-2">
-              <Button variant="outline" size="sm" @click="followLogs = !followLogs">{{
-                followLogs ? '停止滚动' : '自动滚动'
-              }}</Button
-              ><Button variant="outline" size="sm" @click="clearLogs"><Trash2 />清空</Button
-              ><Button variant="outline" size="sm" @click="toggleLogs"
-                ><Pause v-if="logSource" /><Play v-else />{{ logSource ? '暂停' : '连接' }}</Button
-              >
-            </div>
-          </div>
-          <p v-if="logError" class="m-4 notice-error">{{ logError }}</p>
-          <pre ref="logBox" class="log-console">{{
-            logs || (logStatus === 'connecting' ? '正在连接容器日志…' : '暂无日志')
-          }}</pre>
+                      ? '正在连接'
+                      : '已断开'
+                }}
+              </div>
+              <div class="flex gap-2">
+                <Button variant="outline" size="sm" @click="followLogs = !followLogs">{{
+                  followLogs ? '停止滚动' : '自动滚动'
+                }}</Button
+                ><Button variant="outline" size="sm" @click="clearLogs"><Trash2 />清空</Button
+                ><Button variant="outline" size="sm" @click="toggleLogs"
+                  ><Pause v-if="logSource" /><Play v-else />{{
+                    logSource ? '暂停' : '连接'
+                  }}</Button
+                >
+              </div>
+            </template>
+            <p v-if="logError" class="m-4 notice-error">{{ logError }}</p>
+            <pre ref="logBox" class="log-console">{{
+              logs || (logStatus === 'connecting' ? '正在连接容器日志…' : '暂无日志')
+            }}</pre>
+          </LogPanel>
         </template>
 
         <template v-else-if="tab === 'builds'">

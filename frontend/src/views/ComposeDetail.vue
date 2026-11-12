@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { isAdmin } from '@/auth'
+import LogPanel from '@/components/LogPanel.vue'
+import { LogDecoder } from '@/lib/logs'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -44,6 +46,7 @@ const yaml = ref(''),
   tab = ref('overview'),
   error = ref(''),
   containerError = ref(''),
+  containersLoaded = ref(false),
   busy = ref(''),
   preview = ref<any>(),
   reviewing = ref(false)
@@ -104,7 +107,7 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   disposed = false,
   polling = false,
   refreshingContainers = false
-let decoder = new TextDecoder()
+let decoder = new LogDecoder()
 async function load() {
   if (polling || disposed) return
   polling = true
@@ -132,6 +135,7 @@ async function loadContainers() {
   try {
     const list = await api(`/apps/${props.id}/containers`)
     containers.value = list
+    containersLoaded.value = true
     containerError.value = ''
     for (const c of list) {
       const history = points.value[c.id] || { cpu: [], memory: [] }
@@ -288,7 +292,7 @@ function connectLogs() {
   logError.value = ''
   logStatus.value = '连接中'
   logs.value = ''
-  decoder = new TextDecoder()
+  decoder = new LogDecoder()
   const stream = new EventSource(
     `/api/apps/${props.id}/logs?tail=300&service=${encodeURIComponent(service.value)}`,
   )
@@ -300,7 +304,7 @@ function connectLogs() {
   stream.onmessage = async (event) => {
     try {
       const bytes = Uint8Array.from(atob(event.data), (c) => c.charCodeAt(0))
-      logs.value = (logs.value + decoder.decode(bytes, { stream: true })).slice(-1024 * 1024)
+      logs.value = (logs.value + decoder.decode(bytes)).slice(-1024 * 1024)
       if (autoScroll.value) {
         await nextTick()
         if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
@@ -428,207 +432,236 @@ onUnmounted(() => {
       </button>
     </nav>
     <template v-if="tab === 'overview'">
-      <div class="mb-6 grid gap-4 sm:grid-cols-3">
+      <div v-if="!containersLoaded" class="empty-state" role="status" aria-live="polite">
+        <p v-if="containerError" class="notice-error">{{ containerError }}</p>
+        <template v-else>
+          <div class="size-5 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+          <p>正在读取容器资源…</p>
+        </template>
+      </div>
+      <template v-else>
+        <div class="mb-6 grid gap-4 sm:grid-cols-3">
+          <Card
+            ><CardContent class="pt-6"
+              ><p class="text-sm text-muted-foreground">运行容器 / 全部容器</p>
+              <p class="mt-2 text-3xl font-semibold">
+                {{ runningCount }} / {{ containers.length }}
+              </p></CardContent
+            ></Card
+          ><Card
+            ><CardContent class="pt-6"
+              ><p class="text-sm text-muted-foreground">服务数量</p>
+              <p class="mt-2 text-3xl font-semibold">{{ serviceNames.length }}</p></CardContent
+            ></Card
+          ><Card
+            ><CardContent class="pt-6"
+              ><p class="text-sm text-muted-foreground">当前生效版本</p>
+              <p class="mt-2 font-mono">
+                {{ app.compose_active_version_id?.slice(0, 8) || '尚未部署成功' }}
+              </p></CardContent
+            ></Card
+          >
+        </div>
+        <p v-if="containerError" class="notice-error">{{ containerError }}</p>
         <Card
-          ><CardContent class="pt-6"
-            ><p class="text-sm text-muted-foreground">运行容器 / 全部容器</p>
-            <p class="mt-2 text-3xl font-semibold">
-              {{ runningCount }} / {{ containers.length }}
-            </p></CardContent
-          ></Card
-        ><Card
-          ><CardContent class="pt-6"
-            ><p class="text-sm text-muted-foreground">服务数量</p>
-            <p class="mt-2 text-3xl font-semibold">{{ serviceNames.length }}</p></CardContent
-          ></Card
-        ><Card
-          ><CardContent class="pt-6"
-            ><p class="text-sm text-muted-foreground">当前生效版本</p>
-            <p class="mt-2 font-mono">
-              {{ app.compose_active_version_id?.slice(0, 8) || '尚未部署成功' }}
+          ><CardHeader
+            ><h2 class="font-semibold">运行状态</h2>
+            <p class="text-sm text-muted-foreground">
+              容器状态来自部署节点，每 5 秒刷新。配置修改不会自动生效，需校验并部署。
+            </p></CardHeader
+          ><CardContent
+            ><div
+              v-for="c in containers"
+              :key="c.id"
+              class="flex flex-wrap justify-between gap-2 border-b py-3"
+            >
+              <span
+                >{{ c.service }}
+                <span
+                  class="ml-2 inline-block max-w-xs truncate align-bottom text-xs text-muted-foreground"
+                  :title="c.name"
+                  >{{ c.name }}</span
+                ></span
+              ><ContainerStatus :status="c.state.Status" :health="c.state.Health?.Status" />
+            </div>
+            <p v-if="!containers.length" class="text-sm text-muted-foreground">
+              暂无容器。可在操作记录查看部署进度或错误。
             </p></CardContent
           ></Card
         >
-      </div>
-      <p v-if="containerError" class="notice-error">{{ containerError }}</p>
-      <Card
-        ><CardHeader
-          ><h2 class="font-semibold">运行状态</h2>
-          <p class="text-sm text-muted-foreground">
-            容器状态来自部署节点，每 5 秒刷新。配置修改不会自动生效，需校验并部署。
-          </p></CardHeader
-        ><CardContent
-          ><div
-            v-for="c in containers"
-            :key="c.id"
-            class="flex flex-wrap justify-between gap-2 border-b py-3"
-          >
-            <span
-              >{{ c.service }}
-              <span
-                class="ml-2 inline-block max-w-xs truncate align-bottom text-xs text-muted-foreground"
-                :title="c.name"
-                >{{ c.name }}</span
-              ></span
-            ><ContainerStatus :status="c.state.Status" :health="c.state.Health?.Status" />
-          </div>
-          <p v-if="!containers.length" class="text-sm text-muted-foreground">
-            暂无容器。可在操作记录查看部署进度或错误。
-          </p></CardContent
-        ></Card
-      >
+      </template>
     </template>
     <template v-if="tab === 'containers' || tab === 'monitoring'">
-      <div class="mb-4 flex items-center justify-between">
-        <p class="text-sm text-muted-foreground">每 5 秒读取一次；趋势保留最近 60 次采样。</p>
-        <Button variant="outline" size="sm" :disabled="refreshingContainers" @click="loadContainers"
-          ><RefreshCw />刷新</Button
-        >
+      <div v-if="!containersLoaded" class="empty-state" role="status" aria-live="polite">
+        <p v-if="containerError" class="notice-error">{{ containerError }}</p>
+        <template v-else>
+          <div class="size-5 animate-spin rounded-full border-2 border-muted border-t-foreground" />
+          <p>正在读取容器资源…</p>
+        </template>
       </div>
-      <p v-if="containerError" class="notice-error">{{ containerError }}</p>
-      <Card v-if="tab === 'containers'"
-        ><CardContent class="p-0"
-          ><div class="table-wrap">
-            <table class="data-table min-w-[1000px] table-fixed">
-              <thead>
-                <tr>
-                  <th class="w-[22%]">服务 / 容器</th>
-                  <th class="w-[23%]">镜像</th>
-                  <th class="w-[13%]">状态</th>
-                  <th class="w-[13%]">端口</th>
-                  <th class="w-[8%]">重启次数</th>
-                  <th class="w-[21%]">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in containers" :key="c.id">
-                  <td>
-                    <p class="truncate font-medium" :title="c.service">{{ c.service }}</p>
-                    <p class="truncate text-xs text-muted-foreground" :title="c.name">
-                      {{ c.name }}
-                    </p>
-                  </td>
-                  <td class="font-mono text-xs">
-                    <p class="truncate" :title="c.image">{{ c.image }}</p>
-                  </td>
-                  <td>
-                    <ContainerStatus
-                      :status="c.state.Status"
-                      :health="c.state.Health?.Status"
-                      class="flex-col items-start"
-                    />
-                    <p v-if="c.state.OOMKilled" class="text-destructive">OOM</p>
-                    <p v-if="!c.state.Running" class="text-xs">退出码 {{ c.state.ExitCode }}</p>
-                  </td>
-                  <td>
-                    <p
-                      v-for="port in formatContainerPorts(c.ports)"
-                      :key="port"
-                      class="break-all font-mono text-xs"
-                    >
-                      {{ port }}
-                    </p>
-                  </td>
-                  <td class="tabular-nums">{{ c.restart_count ?? 0 }}</td>
-                  <td>
-                    <div class="flex flex-wrap gap-1">
-                      <Button
-                        v-for="op in ['start', 'stop', 'restart', 'rebuild']"
-                        :key="op"
-                        size="sm"
-                        variant="ghost"
-                        :disabled="disabled"
-                        @click="action(op, c.service)"
-                        >{{ composeActionLabels[op] }}</Button
-                      ><Button size="sm" variant="ghost" @click="showServiceLogs(c.service)"
-                        >日志</Button
+      <template v-else>
+        <div class="mb-4 flex items-center justify-between">
+          <p class="text-sm text-muted-foreground">每 5 秒读取一次；趋势保留最近 60 次采样。</p>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="refreshingContainers"
+            @click="loadContainers"
+            ><RefreshCw />刷新</Button
+          >
+        </div>
+        <p v-if="containerError" class="notice-error">{{ containerError }}</p>
+        <Card v-if="tab === 'containers'"
+          ><CardContent class="p-0"
+            ><div class="table-wrap">
+              <table class="data-table min-w-[1000px] table-fixed">
+                <thead>
+                  <tr>
+                    <th class="w-[22%]">服务 / 容器</th>
+                    <th class="w-[23%]">镜像</th>
+                    <th class="w-[13%]">状态</th>
+                    <th class="w-[13%]">端口</th>
+                    <th class="w-[8%]">重启次数</th>
+                    <th class="w-[21%]">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in containers" :key="c.id">
+                    <td>
+                      <p class="truncate font-medium" :title="c.service">{{ c.service }}</p>
+                      <p class="truncate text-xs text-muted-foreground" :title="c.name">
+                        {{ c.name }}
+                      </p>
+                    </td>
+                    <td class="font-mono text-xs">
+                      <p class="truncate" :title="c.image">{{ c.image }}</p>
+                    </td>
+                    <td>
+                      <ContainerStatus
+                        :status="c.state.Status"
+                        :health="c.state.Health?.Status"
+                        class="flex-col items-start"
+                      />
+                      <p v-if="c.state.OOMKilled" class="text-destructive">OOM</p>
+                      <p v-if="!c.state.Running" class="text-xs">退出码 {{ c.state.ExitCode }}</p>
+                    </td>
+                    <td>
+                      <p
+                        v-for="port in formatContainerPorts(c.ports)"
+                        :key="port"
+                        class="break-all font-mono text-xs"
                       >
-                    </div>
-                    <p class="text-xs text-muted-foreground">操作作用于服务的全部副本</p>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-if="!containers.length" class="p-8 text-center text-muted-foreground">暂无容器</p>
-          </div></CardContent
-        ></Card
-      >
-      <div v-else class="grid gap-4 lg:grid-cols-2">
-        <Card v-for="c in containers" :key="c.id"
-          ><CardHeader
-            ><h2 class="font-semibold">{{ c.service }} · {{ c.name }}</h2>
-            <ContainerStatus
-              :status="c.state.Status"
-              :health="c.state.Health?.Status" /></CardHeader
-          ><CardContent
-            ><div class="grid grid-cols-2 gap-4">
-              <div>
-                <p class="text-xs text-muted-foreground">CPU</p>
-                <p class="text-2xl font-semibold">{{ c.stats?.CPUPerc || '—' }}</p>
-                <svg
-                  viewBox="0 0 300 64"
-                  class="mt-2 h-16 w-full"
-                  role="img"
-                  aria-label="CPU 最近采样趋势"
-                >
-                  <polyline
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    class="text-primary"
-                    :points="sparkline(points[c.id]?.cpu || [])"
-                  />
-                </svg>
-              </div>
-              <div>
-                <p class="text-xs text-muted-foreground">内存</p>
-                <p class="text-2xl font-semibold">{{ c.stats?.MemPerc || '—' }}</p>
-                <svg
-                  viewBox="0 0 300 64"
-                  class="mt-2 h-16 w-full"
-                  role="img"
-                  aria-label="内存最近采样趋势"
-                >
-                  <polyline
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    class="text-primary"
-                    :points="sparkline(points[c.id]?.memory || [])"
-                  />
-                </svg>
-              </div>
-            </div>
-            <div class="mt-4 grid gap-2 text-sm">
-              <p>内存使用：{{ c.stats?.MemUsage || '—' }}</p>
-              <p>网络 I/O：{{ c.stats?.NetIO || '—' }}</p>
-              <p>磁盘 I/O：{{ c.stats?.BlockIO || '—' }}</p>
-              <p>进程数：{{ c.stats?.PIDs || '—' }}</p>
+                        {{ port }}
+                      </p>
+                    </td>
+                    <td class="tabular-nums">{{ c.restart_count ?? 0 }}</td>
+                    <td>
+                      <div class="flex flex-wrap gap-1">
+                        <Button
+                          v-for="op in ['start', 'stop', 'restart', 'rebuild']"
+                          :key="op"
+                          size="sm"
+                          variant="ghost"
+                          :disabled="disabled"
+                          @click="action(op, c.service)"
+                          >{{ composeActionLabels[op] }}</Button
+                        ><Button size="sm" variant="ghost" @click="showServiceLogs(c.service)"
+                          >日志</Button
+                        >
+                      </div>
+                      <p class="text-xs text-muted-foreground">操作作用于服务的全部副本</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p v-if="!containers.length" class="p-8 text-center text-muted-foreground">
+                暂无容器
+              </p>
             </div></CardContent
           ></Card
         >
-        <p v-if="!containers.length" class="text-muted-foreground">暂无容器指标</p>
-      </div>
+        <div v-else class="grid gap-4 lg:grid-cols-2">
+          <Card v-for="c in containers" :key="c.id"
+            ><CardHeader
+              ><h2 class="font-semibold">{{ c.service }} · {{ c.name }}</h2>
+              <ContainerStatus
+                :status="c.state.Status"
+                :health="c.state.Health?.Status" /></CardHeader
+            ><CardContent
+              ><div class="grid grid-cols-2 gap-4">
+                <div>
+                  <p class="text-xs text-muted-foreground">CPU</p>
+                  <p class="text-2xl font-semibold">{{ c.stats?.CPUPerc || '—' }}</p>
+                  <svg
+                    viewBox="0 0 300 64"
+                    class="mt-2 h-16 w-full"
+                    role="img"
+                    aria-label="CPU 最近采样趋势"
+                  >
+                    <polyline
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      class="text-primary"
+                      :points="sparkline(points[c.id]?.cpu || [])"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground">内存</p>
+                  <p class="text-2xl font-semibold">{{ c.stats?.MemPerc || '—' }}</p>
+                  <svg
+                    viewBox="0 0 300 64"
+                    class="mt-2 h-16 w-full"
+                    role="img"
+                    aria-label="内存最近采样趋势"
+                  >
+                    <polyline
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      class="text-primary"
+                      :points="sparkline(points[c.id]?.memory || [])"
+                    />
+                  </svg>
+                </div>
+              </div>
+              <div class="mt-4 grid gap-2 text-sm">
+                <p>内存使用：{{ c.stats?.MemUsage || '—' }}</p>
+                <p>网络 I/O：{{ c.stats?.NetIO || '—' }}</p>
+                <p>磁盘 I/O：{{ c.stats?.BlockIO || '—' }}</p>
+                <p>进程数：{{ c.stats?.PIDs || '—' }}</p>
+              </div></CardContent
+            ></Card
+          >
+          <p v-if="!containers.length" class="text-muted-foreground">暂无容器指标</p>
+        </div>
+      </template>
     </template>
     <template v-if="tab === 'logs'">
-      <div class="mb-4 flex flex-wrap items-center gap-3">
-        <select v-model="service" class="native-select max-w-xs" aria-label="日志服务">
-          <option value="">全部服务</option>
-          <option v-for="s in serviceNames" :key="s" :value="s">{{ s }}</option></select
-        ><Input v-model="search" class="max-w-xs" placeholder="搜索日志" /><Button
-          variant="outline"
-          @click="logsConnected ? closeLogs() : connectLogs()"
-          >{{ logsConnected ? '暂停接收' : '连接日志' }}</Button
-        ><Button variant="outline" @click="logs = ''">清空</Button
-        ><Button variant="outline" @click="downloadLogs"><Download />下载</Button
-        ><label class="flex items-center gap-2 text-sm"
-          ><input v-model="autoScroll" type="checkbox" />自动滚动</label
-        ><span class="text-xs text-muted-foreground">{{ logStatus }} · 最多保留约 100 万字符</span>
-      </div>
-      <p v-if="logError" class="notice-error">{{ logError }}</p>
-      <pre ref="logBox" class="code-block h-[540px] overflow-auto whitespace-pre-wrap break-all">{{
-        visibleLogs || '暂无日志'
-      }}</pre>
+      <LogPanel :title="`${app.name} · 实时日志`">
+        <template #toolbar>
+          <select v-model="service" class="native-select max-w-xs" aria-label="日志服务">
+            <option value="">全部服务</option>
+            <option v-for="s in serviceNames" :key="s" :value="s">{{ s }}</option></select
+          ><Input v-model="search" class="max-w-xs" placeholder="搜索日志" /><Button
+            variant="outline"
+            @click="logsConnected ? closeLogs() : connectLogs()"
+            >{{ logsConnected ? '暂停接收' : '连接日志' }}</Button
+          ><Button variant="outline" @click="logs = ''">清空</Button
+          ><Button variant="outline" @click="downloadLogs"><Download />下载</Button
+          ><label class="flex items-center gap-2 text-sm"
+            ><input v-model="autoScroll" type="checkbox" />自动滚动</label
+          ><span class="text-xs text-muted-foreground"
+            >{{ logStatus }} · 最多保留约 100 万字符</span
+          >
+        </template>
+        <p v-if="logError" class="notice-error">{{ logError }}</p>
+        <pre
+          ref="logBox"
+          class="code-block h-[540px] overflow-auto whitespace-pre-wrap break-all"
+          >{{ visibleLogs || '暂无日志' }}</pre>
+      </LogPanel>
     </template>
     <template v-if="tab === 'config'">
       <Card
