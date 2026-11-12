@@ -50,3 +50,15 @@ export const composeStatusLabels: Record<string, string> = {
   operation_failed: '操作失败',
   unknown: '待核对',
 }
+
+export function formatContainerPorts(
+  ports: Record<string, { HostIp?: string; HostPort: string }[] | null> | null | undefined,
+): string[] {
+  const result = new Set<string>()
+  for (const [containerPort, bindings] of Object.entries(ports || {})) {
+    const port = containerPort.replace(/\/tcp$/, '')
+    if (!bindings?.length) result.add(port)
+    else for (const binding of bindings) result.add(`${binding.HostPort}:${port}`)
+  }
+  return result.size ? [...result] : ['—']
+}

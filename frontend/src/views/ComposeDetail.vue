@@ -18,11 +18,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import ComposeEditor from '@/components/ComposeEditor.vue'
+import ContainerStatus from '@/components/ContainerStatus.vue'
 import ComposeRegistries, { type RegistryCredential } from '@/components/ComposeRegistries.vue'
 import {
   composeActionLabels,
   composeStatusLabels,
   environmentText,
+  formatContainerPorts,
   parseComposeEnvironment,
 } from '@/lib/compose'
 import { toast } from '@/lib/toast'
@@ -462,8 +464,12 @@ onUnmounted(() => {
           >
             <span
               >{{ c.service }}
-              <span class="ml-2 text-xs text-muted-foreground">{{ c.name }}</span></span
-            ><span>{{ c.state.Status }} {{ c.state.Health?.Status || '' }}</span>
+              <span
+                class="ml-2 inline-block max-w-xs truncate align-bottom text-xs text-muted-foreground"
+                :title="c.name"
+                >{{ c.name }}</span
+              ></span
+            ><ContainerStatus :status="c.state.Status" :health="c.state.Health?.Status" />
           </div>
           <p v-if="!containers.length" class="text-sm text-muted-foreground">
             暂无容器。可在操作记录查看部署进度或错误。
@@ -482,35 +488,47 @@ onUnmounted(() => {
       <Card v-if="tab === 'containers'"
         ><CardContent class="p-0"
           ><div class="table-wrap">
-            <table class="data-table">
+            <table class="data-table min-w-[1000px] table-fixed">
               <thead>
                 <tr>
-                  <th>服务 / 容器</th>
-                  <th>镜像</th>
-                  <th>状态</th>
-                  <th>端口 / 重启</th>
-                  <th>操作</th>
+                  <th class="w-[22%]">服务 / 容器</th>
+                  <th class="w-[23%]">镜像</th>
+                  <th class="w-[13%]">状态</th>
+                  <th class="w-[13%]">端口</th>
+                  <th class="w-[8%]">重启次数</th>
+                  <th class="w-[21%]">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="c in containers" :key="c.id">
                   <td>
-                    <p class="font-medium">{{ c.service }}</p>
-                    <p class="text-xs text-muted-foreground">{{ c.name }}</p>
+                    <p class="truncate font-medium" :title="c.service">{{ c.service }}</p>
+                    <p class="truncate text-xs text-muted-foreground" :title="c.name">
+                      {{ c.name }}
+                    </p>
                   </td>
-                  <td class="max-w-xs break-all font-mono text-xs">{{ c.image }}</td>
+                  <td class="font-mono text-xs">
+                    <p class="truncate" :title="c.image">{{ c.image }}</p>
+                  </td>
                   <td>
-                    {{ c.state.Status }}
-                    <p class="text-xs">{{ c.state.Health?.Status || '无健康检查' }}</p>
+                    <ContainerStatus
+                      :status="c.state.Status"
+                      :health="c.state.Health?.Status"
+                      class="flex-col items-start"
+                    />
                     <p v-if="c.state.OOMKilled" class="text-destructive">OOM</p>
                     <p v-if="!c.state.Running" class="text-xs">退出码 {{ c.state.ExitCode }}</p>
                   </td>
                   <td>
-                    <pre class="whitespace-pre-wrap text-xs">{{
-                      JSON.stringify(c.ports, null, 2)
-                    }}</pre>
-                    <p class="text-xs">重启 {{ c.restart_count }} 次</p>
+                    <p
+                      v-for="port in formatContainerPorts(c.ports)"
+                      :key="port"
+                      class="break-all font-mono text-xs"
+                    >
+                      {{ port }}
+                    </p>
                   </td>
+                  <td class="tabular-nums">{{ c.restart_count ?? 0 }}</td>
                   <td>
                     <div class="flex flex-wrap gap-1">
                       <Button
@@ -538,9 +556,9 @@ onUnmounted(() => {
         <Card v-for="c in containers" :key="c.id"
           ><CardHeader
             ><h2 class="font-semibold">{{ c.service }} · {{ c.name }}</h2>
-            <p class="text-xs text-muted-foreground">
-              {{ c.state.Status }} · {{ c.state.Health?.Status || '无健康检查' }}
-            </p></CardHeader
+            <ContainerStatus
+              :status="c.state.Status"
+              :health="c.state.Health?.Status" /></CardHeader
           ><CardContent
             ><div class="grid grid-cols-2 gap-4">
               <div>
