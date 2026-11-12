@@ -362,8 +362,13 @@ func (r *Runner) ComposeApply(ctx context.Context, a model.App, n model.Node, co
 	applied, e := x.Run(ctx, composeCLI(a, n, "current.json")+" up -d --pull never --remove-orphans --wait --wait-timeout 120", "")
 	return out + applied, pinned, e
 }
-func (r *Runner) ComposeAction(ctx context.Context, a model.App, n model.Node, action, service string) (string, error) {
-	flags := map[string]string{"start": "start --wait --wait-timeout 120", "stop": "stop --timeout 30", "restart": "restart --timeout 30", "rebuild": "up -d --pull never --force-recreate --wait --wait-timeout 120", "delete": ""}
+
+// Use up for readiness checks: Compose 2.32 supports --wait on up, but not start.
+// Existing containers keep their configuration and are never recreated or pulled.
+const composeStartArgs = "up -d --no-recreate --pull never --wait --wait-timeout 120"
+
+func composeActionArgs(action, service string) (string, error) {
+	flags := map[string]string{"start": composeStartArgs, "stop": "stop --timeout 30", "restart": "restart --timeout 30", "rebuild": "up -d --pull never --force-recreate --wait --wait-timeout 120", "delete": ""}
 	args, ok := flags[action]
 	if !ok {
 		return "", fmt.Errorf("不支持的操作")
@@ -372,10 +377,18 @@ func (r *Runner) ComposeAction(ctx context.Context, a model.App, n model.Node, a
 		if !composeNameRE.MatchString(service) || action == "delete" {
 			return "", fmt.Errorf("无效服务操作")
 		}
-		if action == "rebuild" || action == "restart" {
+		if action == "start" || action == "rebuild" || action == "restart" {
 			args += " --no-deps"
 		}
 		args += " " + shell(service)
+	}
+	return args, nil
+}
+
+func (r *Runner) ComposeAction(ctx context.Context, a model.App, n model.Node, action, service string) (string, error) {
+	args, e := composeActionArgs(action, service)
+	if e != nil {
+		return "", e
 	}
 	x, e := r.connect(n)
 	if e != nil {
@@ -388,10 +401,8 @@ func (r *Runner) ComposeAction(ctx context.Context, a model.App, n model.Node, a
 	}
 	out, e := x.Run(ctx, composeCLI(a, n, "current.json")+" "+args, "")
 	if e == nil && action == "restart" {
-		wait := composeCLI(a, n, "current.json") + " start --wait --wait-timeout 120"
-		if service != "" {
-			wait += " " + shell(service)
-		}
+		waitArgs, _ := composeActionArgs("start", service)
+		wait := composeCLI(a, n, "current.json") + " " + waitArgs
 		more, err := x.Run(ctx, wait, "")
 		out += more
 		e = err

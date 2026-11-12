@@ -410,3 +410,38 @@ func TestLocalRunnerCancelsPluginProcessTree(t *testing.T) {
 		})
 	}
 }
+
+func TestComposeActionCLICompatibility(t *testing.T) {
+	requireComposeCLI(t)
+	for _, action := range []string{"start", "stop", "restart", "rebuild"} {
+		for _, service := range []string{"", "worker"} {
+			t.Run(action+"/"+service, func(t *testing.T) {
+				args, err := composeActionArgs(action, service)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if action == "start" && (!strings.HasPrefix(args, "up ") || !strings.Contains(args, "--no-recreate") || !strings.Contains(args, "--wait-timeout 120")) {
+					t.Fatalf("start must wait without recreating existing containers: %s", args)
+				}
+				if service != "" && !strings.Contains(args, " "+shell(service)) {
+					t.Fatalf("service scope lost: %s", args)
+				}
+				if service != "" && action != "stop" && !strings.Contains(args, "--no-deps") {
+					t.Fatalf("service operation must not start dependencies: %s", args)
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				// Cobra validates flags before printing help; no daemon or containers needed.
+				out, err := exec.CommandContext(ctx, "sh", "-c", "docker compose "+args+" --help").CombinedOutput()
+				if err != nil {
+					t.Fatalf("unsupported command %s: %v: %s", args, err, out)
+				}
+			})
+		}
+	}
+	for _, service := range []string{"worker; touch /tmp/no", "--all"} {
+		if _, err := composeActionArgs("start", service); err == nil {
+			t.Fatalf("accepted unsafe service %q", service)
+		}
+	}
+}
