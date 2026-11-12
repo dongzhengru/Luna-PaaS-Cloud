@@ -77,15 +77,20 @@ func TestComposeAPIIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = db.AutoMigrate(&model.App{}, &model.Node{}, &model.ComposeVersion{}, &model.Task{}, &model.Session{}, &model.SecretSetting{}, &model.Build{}, &model.Release{}); e != nil {
+	if e = db.AutoMigrate(&model.AllowedUser{}, &model.AppPermission{}, &model.App{}, &model.Node{}, &model.ComposeVersion{}, &model.Task{}, &model.Session{}, &model.SecretSetting{}, &model.Build{}, &model.Release{}); e != nil {
 		t.Fatal(e)
 	}
 	box, e := secure.New(bytes.Repeat([]byte{8}, 32))
 	if e != nil {
 		t.Fatal(e)
 	}
+	user := model.AllowedUser{Base: model.Base{ID: id()}, Phone: "test-" + id()[:20], Role: "admin", Enabled: true}
+	if e = db.Create(&user).Error; e != nil {
+		t.Fatal(e)
+	}
+	defer db.Delete(&user)
 	token := "compose-smoke-test-session"
-	session := model.Session{Base: model.Base{ID: id()}, TokenHash: hash(token), Phone: "test", ExpiresAt: time.Now().Add(time.Hour)}
+	session := model.Session{Base: model.Base{ID: id()}, TokenHash: hash(token), Phone: user.Phone, ExpiresAt: time.Now().Add(time.Hour)}
 	if e = db.Create(&session).Error; e != nil {
 		t.Fatal(e)
 	}

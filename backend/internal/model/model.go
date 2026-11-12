@@ -9,6 +9,7 @@ type Base struct {
 }
 type AllowedUser struct {
 	Base
+	Role    string `gorm:"size:16;default:user" json:"role"`
 	Phone   string `gorm:"uniqueIndex;size:32" json:"phone"`
 	Enabled bool   `gorm:"default:true"        json:"enabled"`
 }
@@ -141,4 +142,10 @@ type ComposeVersion struct {
 	Action   string `json:"action"`
 	Status   string `gorm:"index;size:32" json:"status"`
 	TaskID   string `gorm:"size:36" json:"task_id"`
+}
+
+// AppPermission grants a user management access to one application, excluding deletion.
+type AppPermission struct {
+	UserID string `gorm:"primaryKey;size:36" json:"user_id"`
+	AppID  string `gorm:"primaryKey;size:36;index" json:"app_id"`
 }

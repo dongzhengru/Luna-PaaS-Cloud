@@ -1,26 +1,31 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { Boxes, Cloud, LayoutDashboard, LogOut, Menu, Server, Settings, X } from 'lucide-vue-next'
-import { api, post } from './api'
+import { post } from './api'
+import { currentUser, isAdmin, loadUser } from './auth'
 import { Button } from '@/components/ui/button'
 import Toaster from '@/components/Toaster.vue'
 
-const user = ref<any>(null)
+const user = currentUser
+
 const loading = ref(true)
 const mobileOpen = ref(false)
 const route = useRoute()
 
-const navigation = [
-  { to: '/', label: '概览', icon: LayoutDashboard },
-  { to: '/apps', label: '应用', icon: Boxes },
-  { to: '/nodes', label: '部署节点', icon: Server },
-  { to: '/settings', label: '系统设置', icon: Settings },
-]
+const navigation = computed(() =>
+  [
+    { to: '/', label: '概览', icon: LayoutDashboard },
+    { to: '/apps', label: '应用', icon: Boxes },
+    { to: '/nodes', label: '部署节点', icon: Server },
+    { to: '/settings', label: '系统设置', icon: Settings },
+    { to: '/users', label: '用户与权限', icon: Settings },
+  ].filter((item) => isAdmin.value || ['/', '/apps'].includes(item.to)),
+)
 
 onMounted(async () => {
   try {
-    user.value = await api('/auth/me')
+    await loadUser()
   } catch {
     /* handled by login state */
   } finally {
@@ -124,7 +129,7 @@ async function logout() {
           </div>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-medium">{{ user.phone || '当前用户' }}</p>
-            <p class="text-xs text-muted-foreground">已登录</p>
+            <p class="text-xs text-muted-foreground">{{ isAdmin ? '管理员' : '用户' }}</p>
           </div>
           <Button variant="ghost" size="icon" aria-label="退出登录" @click="logout"
             ><LogOut

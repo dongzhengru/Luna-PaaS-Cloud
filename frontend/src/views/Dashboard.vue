@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAdmin } from '@/auth'
 import { onMounted, ref } from 'vue'
 import { ArrowRight, Boxes, PackageCheck, Plus, Server } from 'lucide-vue-next'
 import { api } from '../api'
@@ -20,7 +21,7 @@ onMounted(async () => {
       <h1 class="page-title">运行概览</h1>
       <p class="page-description">快速了解应用、节点与发布状态。</p>
     </div>
-    <Button as-child
+    <Button v-if="isAdmin" as-child
       ><RouterLink to="/apps/new"><Plus />新建部署</RouterLink></Button
     >
   </div>

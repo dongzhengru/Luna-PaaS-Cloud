@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAdmin } from '@/auth'
 import { nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -363,7 +364,11 @@ onUnmounted(() => {
           ><RefreshCw :class="busyAction === 'retry' && 'animate-spin'" />{{
             busyAction === 'retry' ? '正在提交…' : '更新构建工作流'
           }}</Button
-        ><Button variant="destructive" :disabled="busyAction === 'delete'" @click="removeApp"
+        ><Button
+          v-if="isAdmin"
+          variant="destructive"
+          :disabled="busyAction === 'delete'"
+          @click="removeApp"
           ><Trash2 />{{ busyAction === 'delete' ? '正在删除…' : '删除应用' }}</Button
         >
       </div>

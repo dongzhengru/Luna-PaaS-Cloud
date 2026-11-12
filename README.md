@@ -6,7 +6,7 @@ Luna PaaS Cloud 是一个适合个人或小团队自托管的轻量 PaaS。它�
 
 ## 功能特性
 
-- OAuth2 登录
+- OAuth2 登录、管理员/用户角色及应用级管理授权
 - 自动创建和维护 GitHub Actions 构建工作流
 - 支持 Vue、Python、Java 和 Go 项目
 - 支持本机及 SSH 远程 Docker 节点
@@ -99,9 +99,17 @@ docker compose exec mysql mysql -upaas -p paas
 ```
 
 ```sql
-INSERT INTO allowed_users (id, phone, enabled, created_at, updated_at)
-VALUES (UUID(), '13800000000', 1, NOW(), NOW());
+INSERT INTO allowed_users (id, phone, role, enabled, created_at, updated_at)
+VALUES (UUID(), '13800000000', 'admin', 1, NOW(), NOW());
 ```
+
+已有平台升级后，用户默认角色为 `user`。首次使用前，请在数据库中明确指定一位已有用户为管理员：
+
+```sql
+UPDATE allowed_users SET role = 'admin' WHERE phone = '13800000000' AND enabled = 1;
+```
+
+管理员在“用户与权限”中添加登录用户、设置角色/启用状态，并勾选用户可管理的应用。普通用户仅能查看获授权的应用，以及执行配置、发布、回滚、日志和容器操作；创建/删除应用、更换部署节点、系统设置、节点管理和用户授权仅限管理员。Compose 删除接口同样受此限制。取消应用授权后，后续 API 请求立即失去权限；停用用户后，已有会话也不能继续访问。已开始的部署任务不会因撤权而中断。系统至少保留一位启用的管理员。
 
 ### 4. 完成平台设置
 

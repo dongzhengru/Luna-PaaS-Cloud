@@ -49,6 +49,7 @@ func New(c config.Config, db *gorm.DB, b *secure.Box) http.Handler {
 }
 func (s *Server) routes() {
 	s.composeRoutes()
+	s.userRoutes()
 	s.mux.HandleFunc(
 		"GET /healthz",
 		func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, map[string]string{"status": "ok"}) },
@@ -101,6 +102,9 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		if !public {
 			if _, ok := s.session(r); !ok {
 				fail(w, 401, "authentication required")
+				return
+			}
+			if !s.authorize(w, r) {
 				return
 			}
 		}
@@ -252,6 +256,11 @@ func (s *Server) session(r *http.Request) (model.Session, bool) {
 	}
 	var x model.Session
 	e = s.db.Where("token_hash = ? AND expires_at > ?", hash(c.Value), time.Now()).First(&x).Error
+	if e != nil {
+		return x, false
+	}
+	var user model.AllowedUser
+	e = s.db.Where("phone = ? AND enabled = ?", x.Phone, true).First(&user).Error
 	return x, e == nil
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -260,7 +269,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "not logged in")
 		return
 	}
-	jsonOut(w, 200, map[string]string{"phone": x.Phone})
+	var user model.AllowedUser
+	s.db.Where("phone = ?", x.Phone).First(&user)
+	jsonOut(w, 200, user)
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, e := r.Cookie("paas_session"); e == nil {
@@ -417,7 +428,23 @@ type nodeInput struct {
 
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	var x []model.Node
-	s.db.Order("created_at desc").Find(&x)
+	query := s.db.Order("created_at desc")
+	user := s.currentUser(r)
+	if user.Role != "admin" {
+		query = query.Where("id IN (?)", s.db.Model(&model.App{}).Select("node_id").Where("id IN (?)", s.db.Model(&model.AppPermission{}).Select("app_id").Where("user_id = ?", user.ID)))
+	}
+	if err := query.Find(&x).Error; err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if user.Role != "admin" {
+		var nodes []map[string]any = []map[string]any{}
+		for _, n := range x {
+			nodes = append(nodes, map[string]any{"id": n.ID, "name": n.Name, "status": n.Status})
+		}
+		jsonOut(w, 200, nodes)
+		return
+	}
 	jsonOut(w, 200, x)
 }
 func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
@@ -554,7 +581,15 @@ func slug(v string) string {
 }
 func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
 	var x []model.App
-	s.db.Order("created_at desc").Find(&x)
+	query := s.db.Order("created_at desc")
+	user := s.currentUser(r)
+	if user.Role != "admin" {
+		query = query.Where("id IN (?)", s.db.Model(&model.AppPermission{}).Select("app_id").Where("user_id = ?", user.ID))
+	}
+	if err := query.Find(&x).Error; err != nil {
+		fail(w, 500, err)
+		return
+	}
 	jsonOut(w, 200, x)
 }
 func (s *Server) getApp(w http.ResponseWriter, r *http.Request) {
@@ -745,6 +780,9 @@ func (s *Server) deleteApp(w http.ResponseWriter, r *http.Request) {
 		if x := tx.Where("resource_id = ?", a.ID).Delete(&model.Task{}); x.Error != nil {
 			return x.Error
 		}
+		if err := tx.Where("app_id = ?", a.ID).Delete(&model.AppPermission{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&a).Error
 	})
 	if e != nil {
@@ -816,6 +854,10 @@ func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.NodeID == "" {
 		in.NodeID = a.NodeID
+	}
+	if s.currentUser(r).Role != "admin" && in.NodeID != a.NodeID {
+		fail(w, 403, "只有管理员可以更换部署节点")
+		return
 	}
 	if in.RuntimeVersion == "" {
 		in.RuntimeVersion = a.RuntimeVersion

@@ -74,10 +74,22 @@ func (s *Server) validateCompose(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, e)
 		return
 	}
+	user := s.currentUser(r)
+	if user.Role != "admin" && !s.canManage(user, in.AppID) {
+		fail(w, 403, "没有此应用的管理权限")
+		return
+	}
 	var n model.Node
 	if s.db.First(&n, "id = ?", in.NodeID).Error != nil {
 		fail(w, 400, "请选择有效的部署节点")
 		return
+	}
+	if in.AppID != "" {
+		var app model.App
+		if s.db.First(&app, "id = ? AND deployment_source = ? AND node_id = ?", in.AppID, "compose", n.ID).Error != nil {
+			fail(w, 404, "编排应用不存在或节点不匹配")
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -266,6 +278,10 @@ func (s *Server) composeAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if e = decodeCompose(w, r, &in); e != nil {
 		fail(w, 400, e)
+		return
+	}
+	if in.Action == "delete" && s.currentUser(r).Role != "admin" {
+		fail(w, 403, "只有管理员可以删除应用")
 		return
 	}
 	if !map[string]bool{"deploy": true, "update_images": true, "rollback": true, "start": true, "stop": true, "restart": true, "rebuild": true, "delete": true}[in.Action] {
@@ -515,6 +531,9 @@ func (s *Server) executeCompose(taskID, versionID, service, action string) {
 				return err
 			}
 			if err := tx.Where("resource_id = ? AND id <> ?", a.ID, t.ID).Delete(&model.Task{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("app_id = ?", a.ID).Delete(&model.AppPermission{}).Error; err != nil {
 				return err
 			}
 			return tx.Delete(&a).Error

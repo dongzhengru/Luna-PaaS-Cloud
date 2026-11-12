@@ -27,6 +27,7 @@ func main() {
 	}
 	err = db.AutoMigrate(
 		&model.AllowedUser{},
+		&model.AppPermission{},
 		&model.Session{},
 		&model.OAuthState{},
 		&model.SecretSetting{},

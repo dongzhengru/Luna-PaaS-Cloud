@@ -9,6 +9,7 @@ const AppDetail = () => import('./views/AppDeployment.vue')
 import Nodes from './views/Nodes.vue'
 import Settings from './views/Settings.vue'
 import './style.css'
+import { isAdmin, loadUser } from './auth'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -18,6 +19,17 @@ const router = createRouter({
     { path: '/apps/:id', component: AppDetail },
     { path: '/nodes', component: Nodes },
     { path: '/settings', component: Settings },
+    { path: '/users', component: () => import('./views/Users.vue') },
   ],
+})
+router.beforeEach(async (to) => {
+  if (['/nodes', '/settings', '/users', '/apps/new'].includes(to.path)) {
+    try {
+      await loadUser()
+    } catch {
+      return '/'
+    }
+    if (!isAdmin.value) return '/apps'
+  }
 })
 createApp(App).use(createPinia()).use(router).mount('#app')

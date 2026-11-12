@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAdmin } from '@/auth'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -400,7 +401,7 @@ onUnmounted(() => {
           @click="action('update_images')"
           ><RefreshCw />更新镜像</Button
         ><Button variant="outline" :disabled="disabled" @click="action('rebuild')">重建</Button
-        ><Button variant="destructive" :disabled="disabled" @click="action('delete')"
+        ><Button v-if="isAdmin" variant="destructive" :disabled="disabled" @click="action('delete')"
           ><Trash2 />删除</Button
         >
       </div>

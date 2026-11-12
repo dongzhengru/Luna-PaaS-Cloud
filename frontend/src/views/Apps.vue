@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAdmin } from '@/auth'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Boxes, ChevronRight, Plus } from 'lucide-vue-next'
@@ -27,7 +28,7 @@ onMounted(async () => {
       <h1 class="page-title">应用</h1>
       <p class="page-description">管理 GitHub 项目与容器编排部署。</p>
     </div>
-    <Button as-child
+    <Button v-if="isAdmin" as-child
       ><RouterLink to="/apps/new"><Plus />新建部署</RouterLink></Button
     >
   </div>
