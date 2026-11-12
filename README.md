@@ -1,6 +1,6 @@
 # Luna PaaS Cloud
 
-Luna PaaS Cloud 是一个适合个人或小团队自托管的轻量 PaaS。它连接 GitHub 仓库，自动注入 GitHub Actions 工作流，将应用构建为 Docker 镜像并推送到阿里云容器镜像服务（ACR），随后通过本机 Docker 或 SSH 节点完成发布。
+Luna PaaS Cloud 是一个适合个人或小团队自托管的轻量 PaaS。它连接 GitHub 仓库，自动注入 GitHub Actions 工作流，将应用构建为 Docker 镜像并推送到阿里云容器镜像服务（ACR），随后通过本机 Docker 或 SSH 节点完成发布。也支持直接粘贴 Docker Compose YAML，部署和管理多个容器服务。
 
 > 项目仍处于早期阶段，建议先在测试环境评估，不要直接用于关键生产负载。
 
@@ -10,6 +10,9 @@ Luna PaaS Cloud 是一个适合个人或小团队自托管的轻量 PaaS。它�
 - 自动创建和维护 GitHub Actions 构建工作流
 - 支持 Vue、Python、Java 和 Go 项目
 - 支持本机及 SSH 远程 Docker 节点
+- 容器编排部署：YAML 编辑与校验、私有镜像仓库凭证、草稿与配置版本
+- 编排整组/服务级启动、停止、重启和重建，整组更新镜像、版本回退和删除
+- 多容器列表、实时资源趋势、聚合/服务日志与操作进度
 - 应用环境变量、持久卷、健康检查和重启策略配置
 - 构建记录、发布记录、实时日志与容器运行指标
 - 一键发布、历史版本回滚及钉钉机器人通知
@@ -110,7 +113,7 @@ VALUES (UUID(), '13800000000', 1, NOW(), NOW());
 
 PAT 应仅授权需要部署的仓库，并授予 Metadata 读取以及 Contents、Workflows、Actions、Secrets 的读写权限。平台会创建 `.github/workflows/paas-build.yml`；如果仓库中已有同名且并非平台管理的文件，平台不会覆盖。
 
-### 5. 创建部署
+### 5. 创建 GitHub 项目部署
 
 1. 在 ACR 命名空间中预先创建与 GitHub 仓库同名（小写）的私有镜像仓库。
 2. 添加本机或 SSH 部署节点。
@@ -118,6 +121,34 @@ PAT 应仅授权需要部署的仓库，并授予 Metadata 读取以及 Contents
 4. 等待首次 GitHub Actions 构建回调并自动发布。
 
 远程节点首次测试时，如果未填写主机指纹，错误信息会显示观测到的 `SHA256:...` 指纹。请通过可信渠道核验后再保存，避免中间人攻击。
+
+### 6. 创建容器编排部署
+
+在“新建部署”选择“容器编排部署”，填写应用名称与节点，粘贴 Compose YAML：
+
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8081}:80"
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+volumes:
+  redis-data:
+```
+
+可以在环境变量中填写 `WEB_PORT=8081`。公共镜像不需要 GitHub 或 ACR 设置；私有镜像可在编排表单中添加对应仓库的用户名和密码，也可沿用系统 ACR 凭证。先“校验配置”，再“创建并部署”。
+
+详情页支持容器列表、CPU/内存趋势、网络/磁盘 I/O、实时日志、配置编辑及操作记录。配置编辑提供 YAML 语法高亮和行号；保存草稿不会改变运行中的容器，校验并查看变更后可部署更新。修改过程中会提示新增和移除的服务。每次成功发布保存镜像 digest，可以恢复历史配置和镜像；数据卷内容不会回退。
+
+第一版支持单节点、基于 `image` 的编排，暂不支持 `build`、外部文件、`configs/secrets`、自定义容器名称或卷驱动挂载选项。Bind mount 必须使用节点白名单内的绝对路径。平台控制项目名与资源归属，YAML、环境变量和仓库凭证整体加密存储，节点文件仅所有者可读写。
+
+“停止”会优雅停止容器；“重建”强制重新创建容器；“更新镜像”拉取当前生效配置中的镜像并应用，不会发布未部署的草稿。删除编排保留数据卷。监控趋势仅保留当前页面最近 60 次采样，不提供跨会话历史数据。平台重启时会将未完成操作标记为待核对，需查看节点实际容器状态后重试。
 
 ## 本地开发
 
@@ -152,6 +183,24 @@ make build
 make format
 make format-check
 ```
+
+### 编排集成测试
+
+普通 `go test ./...` 会执行配置边界、加密、镜像 digest 和可用时的真实 Compose 解析测试。完整容器生命周期测试需显式开启，会拉取 Alpine 镜像并创建临时容器和命名卷，结束后清理测试资源：
+
+```bash
+cd backend
+PAAS_COMPOSE_INTEGRATION=1 go test ./internal/deploy -run TestComposeLifecycleIntegration -count=1 -v
+```
+
+API 集成测试还需要独立的 MySQL 测试库，库名必须为 `paas_compose_smoke`，不能指向共享或生产数据库：
+
+```bash
+PAAS_COMPOSE_TEST_DSN='root:TEST_PASSWORD@tcp(127.0.0.1:3306)/paas_compose_smoke?charset=utf8mb4&parseTime=True&loc=Local' \
+  go test ./internal/server -run TestComposeAPIIntegration -count=1 -v
+```
+
+这两组测试支持通过 `PAAS_COMPOSE_TEST_IMAGE` 指定测试镜像；私有测试仓库可同时设置 `PAAS_COMPOSE_TEST_REGISTRY`、`PAAS_COMPOSE_TEST_REGISTRY_USER` 和 `PAAS_COMPOSE_TEST_REGISTRY_PASSWORD`，以避免测试依赖 Docker Hub 连通性。
 
 ## 安全说明
 

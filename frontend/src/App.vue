@@ -52,7 +52,7 @@ async function logout() {
       </div>
       <h1 class="text-2xl font-semibold tracking-tight">登录 Luna PaaS</h1>
       <p class="mt-2 text-sm leading-6 text-muted-foreground">
-        从 GitHub 构建镜像，在你的节点上可靠运行。
+        从 GitHub 构建镜像，或使用 Compose 编排部署服务。
       </p>
       <Button as-child class="mt-7 w-full">
         <a href="/api/auth/login">使用 One Connect 登录</a>

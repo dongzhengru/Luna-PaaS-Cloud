@@ -50,30 +50,33 @@ type Node struct {
 
 type App struct {
 	Base
-	Name                 string `gorm:"uniqueIndex;size:100" json:"name"`
-	Slug                 string `gorm:"uniqueIndex;size:100" json:"slug"`
-	Type                 string `gorm:"size:16"              json:"type"`
-	RuntimeVersion       string `gorm:"size:16"              json:"runtime_version"`
-	RepoURL              string `gorm:"uniqueIndex;size:500" json:"repo_url"`
-	RepoOwner            string `                            json:"repo_owner"`
-	RepoName             string `                            json:"repo_name"`
-	Branch               string `                            json:"branch"`
-	DockerfilePath       string `                            json:"dockerfile_path"`
-	BuildContext         string `                            json:"build_context"`
-	NodeID               string `gorm:"index;size:36"        json:"node_id"`
-	HostPort             int    `gorm:"index"                json:"host_port"`
-	ContainerPort        int    `                            json:"container_port"`
-	RestartPolicy        string `                            json:"restart_policy"`
-	HostAccessEnabled    bool   `gorm:"default:false"        json:"host_access_enabled"`
-	EnvironmentJSON      string `gorm:"type:longtext"        json:"-"`
-	VolumesJSON          string `gorm:"type:longtext"        json:"volumes_json"`
-	HealthJSON           string `gorm:"type:text"            json:"health_json"`
-	CallbackSecret       string `                            json:"-"`
-	InitialDeployPending bool   `                            json:"initial_deploy_pending"`
-	Status               string `gorm:"index;size:32"        json:"status"`
-	LastError            string `gorm:"type:text"            json:"last_error"`
-	ActiveReleaseID      string `gorm:"size:36"              json:"active_release_id"`
-	WorkflowSHA          string `                            json:"-"`
+	DeploymentSource       string `gorm:"size:16;default:github" json:"deployment_source"`
+	ComposeDraft           string `gorm:"type:longtext" json:"-"`
+	ComposeActiveVersionID string `gorm:"size:36" json:"compose_active_version_id"`
+	Name                   string `gorm:"uniqueIndex;size:100" json:"name"`
+	Slug                   string `gorm:"uniqueIndex;size:100" json:"slug"`
+	Type                   string `gorm:"size:16"              json:"type"`
+	RuntimeVersion         string `gorm:"size:16"              json:"runtime_version"`
+	RepoURL                string `gorm:"uniqueIndex;size:500" json:"repo_url"`
+	RepoOwner              string `                            json:"repo_owner"`
+	RepoName               string `                            json:"repo_name"`
+	Branch                 string `                            json:"branch"`
+	DockerfilePath         string `                            json:"dockerfile_path"`
+	BuildContext           string `                            json:"build_context"`
+	NodeID                 string `gorm:"index;size:36"        json:"node_id"`
+	HostPort               int    `gorm:"index"                json:"host_port"`
+	ContainerPort          int    `                            json:"container_port"`
+	RestartPolicy          string `                            json:"restart_policy"`
+	HostAccessEnabled      bool   `gorm:"default:false"        json:"host_access_enabled"`
+	EnvironmentJSON        string `gorm:"type:longtext"        json:"-"`
+	VolumesJSON            string `gorm:"type:longtext"        json:"volumes_json"`
+	HealthJSON             string `gorm:"type:text"            json:"health_json"`
+	CallbackSecret         string `                            json:"-"`
+	InitialDeployPending   bool   `                            json:"initial_deploy_pending"`
+	Status                 string `gorm:"index;size:32"        json:"status"`
+	LastError              string `gorm:"type:text"            json:"last_error"`
+	ActiveReleaseID        string `gorm:"size:36"              json:"active_release_id"`
+	WorkflowSHA            string `                            json:"-"`
 }
 
 type Build struct {
@@ -127,4 +130,15 @@ type HealthCheck struct {
 	Timeout     string `json:"timeout"`
 	Retries     int    `json:"retries"`
 	StartPeriod string `json:"start_period"`
+}
+
+// ComposeVersion holds encrypted source and resolved documents; API lists metadata only.
+type ComposeVersion struct {
+	Base
+	AppID    string `gorm:"index;size:36" json:"app_id"`
+	Source   string `gorm:"type:longtext" json:"-"`
+	Resolved string `gorm:"type:longtext" json:"-"`
+	Action   string `json:"action"`
+	Status   string `gorm:"index;size:32" json:"status"`
+	TaskID   string `gorm:"size:36" json:"task_id"`
 }

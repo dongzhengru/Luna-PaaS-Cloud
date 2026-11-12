@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -23,9 +25,11 @@ import (
 )
 
 type Runner struct {
+	ComposePullAlways                        bool
 	DB                                       *gorm.DB
 	Box                                      *secure.Box
 	Registry, RegistryUser, RegistryPassword string
+	OnProgress                               func(string)
 }
 type commandRunner interface {
 	Run(context.Context, string, string) (string, error)
@@ -34,8 +38,24 @@ type commandRunner interface {
 }
 type localRunner struct{}
 
+// Compose is a Docker CLI plugin process. Killing only the parent CLI leaves
+// the plugin and its log stream alive, so cancel the entire local process group.
+func localCommand(ctx context.Context, command string) *exec.Cmd {
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error {
+		err := syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		if err == syscall.ESRCH {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	c.WaitDelay = 3 * time.Second
+	return c
+}
+
 func (localRunner) Run(ctx context.Context, cmd, input string) (string, error) {
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c := localCommand(ctx, cmd)
 	c.Stdin = strings.NewReader(input)
 	b, e := c.CombinedOutput()
 	if e != nil {
@@ -44,7 +64,7 @@ func (localRunner) Run(ctx context.Context, cmd, input string) (string, error) {
 	return string(b), nil
 }
 func (localRunner) Stream(ctx context.Context, cmd, input string, output io.Writer) error {
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c := localCommand(ctx, cmd)
 	c.Stdin = strings.NewReader(input)
 	w := &lockedWriter{Writer: output}
 	c.Stdout = w
@@ -582,4 +602,10 @@ func ValidateVolumes(n model.Node, vs []model.Volume) error {
 		}
 	}
 	return nil
+}
+
+func (r *Runner) progress(message string) {
+	if r.OnProgress != nil {
+		r.OnProgress(message)
+	}
 }

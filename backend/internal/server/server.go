@@ -44,9 +44,11 @@ func New(c config.Config, db *gorm.DB, b *secure.Box) http.Handler {
 		http: &http.Client{Timeout: 20 * time.Second},
 	}
 	s.routes()
+	s.recoverComposeTasks()
 	return s.middleware(s.mux)
 }
 func (s *Server) routes() {
+	s.composeRoutes()
 	s.mux.HandleFunc(
 		"GET /healthz",
 		func(w http.ResponseWriter, r *http.Request) { jsonOut(w, 200, map[string]string{"status": "ok"}) },
@@ -577,6 +579,12 @@ func (s *Server) appAndNode(appID string) (model.App, model.Node, error) {
 }
 
 func (s *Server) getAppStats(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器列表获取各容器指标")
+		return
+	}
+
 	a, n, e := s.appAndNode(r.PathValue("id"))
 	if e != nil {
 		fail(w, http.StatusNotFound, e)
@@ -661,7 +669,11 @@ func (s *Server) streamAppLogs(w http.ResponseWriter, r *http.Request) {
 	_ = stream.event("ready", "connected")
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- (&deploy.Runner{DB: s.db, Box: s.box}).StreamLogs(r.Context(), a, n, tail, stream)
+		if a.DeploymentSource == "compose" {
+			errCh <- (&deploy.Runner{DB: s.db, Box: s.box}).ComposeLogs(r.Context(), a, n, r.URL.Query().Get("service"), tail, stream)
+		} else {
+			errCh <- (&deploy.Runner{DB: s.db, Box: s.box}).StreamLogs(r.Context(), a, n, tail, stream)
+		}
 	}()
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
@@ -697,6 +709,11 @@ func (s *Server) safeApp(a model.App) map[string]any {
 }
 
 func (s *Server) deleteApp(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var a model.App
 	if s.db.First(&a, "id = ?", r.PathValue("id")).Error != nil {
 		fail(w, 404, "app not found")
@@ -782,6 +799,11 @@ func validateRuntime(appType, version string) (string, error) {
 }
 
 func (s *Server) updateApp(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var a model.App
 	if s.db.First(&a, "id = ?", r.PathValue("id")).Error != nil {
 		fail(w, 404, "app not found")
@@ -1167,6 +1189,11 @@ func (s *Server) initFailed(appID, taskID, msg string) {
 	s.task(taskID, "failed", msg)
 }
 func (s *Server) retryInitialize(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var a model.App
 	if s.db.First(&a, "id = ?", r.PathValue("id")).Error != nil {
 		fail(w, 404, "app not found")
@@ -1356,6 +1383,11 @@ func (s *Server) buildCallback(w http.ResponseWriter, r *http.Request) {
 	jsonOut(w, 200, map[string]any{"build_id": b.ID, "status": b.Status})
 }
 func (s *Server) createRelease(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var in struct {
 		BuildID string `json:"build_id"`
 	}
@@ -1419,6 +1451,11 @@ func shortSHA(v string) string {
 	return v
 }
 func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var target model.Release
 	if s.db.Where("id = ? AND app_id = ? AND status = ?", r.PathValue("release"), r.PathValue("id"), "succeeded").
 		First(&target).
@@ -1547,6 +1584,11 @@ func (s *Server) runner() (*deploy.Runner, error) {
 	}, nil
 }
 func (s *Server) syncBuilds(w http.ResponseWriter, r *http.Request) {
+	var sourceApp model.App
+	if s.db.First(&sourceApp, "id = ?", r.PathValue("id")).Error == nil && sourceApp.DeploymentSource == "compose" {
+		fail(w, 409, "请使用容器编排操作接口")
+		return
+	}
 	var a model.App
 	if s.db.First(&a, "id = ?", r.PathValue("id")).Error != nil {
 		fail(w, 404, "app not found")

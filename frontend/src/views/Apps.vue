@@ -25,7 +25,7 @@ onMounted(async () => {
   <div class="page-header">
     <div>
       <h1 class="page-title">应用</h1>
-      <p class="page-description">管理代码仓库、构建与发布。</p>
+      <p class="page-description">管理 GitHub 项目与容器编排部署。</p>
     </div>
     <Button as-child
       ><RouterLink to="/apps/new"><Plus />新建部署</RouterLink></Button
@@ -58,13 +58,19 @@ onMounted(async () => {
             >
               <td>
                 <p class="font-medium">{{ a.name }}</p>
-                <p class="mt-0.5 text-xs text-muted-foreground">{{ a.type }}</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">
+                  {{ a.deployment_source === 'compose' ? 'Docker Compose' : a.type }}
+                </p>
               </td>
-              <td>
+              <td v-if="a.deployment_source === 'compose'">容器编排部署</td>
+              <td v-else>
                 {{ a.repo_owner }}/{{ a.repo_name
                 }}<span class="text-muted-foreground"> · {{ a.branch || '默认分支' }}</span>
               </td>
-              <td class="font-mono text-xs">
+              <td v-if="a.deployment_source === 'compose'" class="text-muted-foreground">
+                由 YAML 配置
+              </td>
+              <td v-else class="font-mono text-xs">
                 127.0.0.1:{{ a.host_port }} → {{ a.container_port }}
               </td>
               <td class="text-muted-foreground">{{ fmt(a.created_at) }}</td>

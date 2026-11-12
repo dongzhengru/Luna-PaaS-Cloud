@@ -35,6 +35,7 @@ func main() {
 		&model.Build{},
 		&model.Release{},
 		&model.Task{},
+		&model.ComposeVersion{},
 	)
 	if err != nil {
 		log.Fatal(err)

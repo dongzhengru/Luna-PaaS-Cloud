@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/lib/toast'
+import ComposeCreate from '@/components/ComposeCreate.vue'
+const source = ref('github')
 
 const router = useRouter(),
   nodes = ref<any[]>([]),
@@ -126,10 +128,19 @@ async function submit() {
         ><RouterLink to="/apps"><ArrowLeft />返回应用</RouterLink></Button
       >
       <h1 class="page-title">新建部署</h1>
-      <p class="page-description">连接 GitHub 仓库并创建首次构建。</p>
+      <p class="page-description">选择从 GitHub 构建，或直接使用 Compose YAML 部署。</p>
     </div>
   </div>
-  <form class="max-w-4xl" @submit.prevent="submit">
+  <div class="mb-6 flex gap-2" role="group" aria-label="部署方式">
+    <Button :variant="source === 'github' ? 'default' : 'outline'" @click="source = 'github'"
+      >GitHub 项目部署</Button
+    >
+    <Button :variant="source === 'compose' ? 'default' : 'outline'" @click="source = 'compose'"
+      >容器编排部署</Button
+    >
+  </div>
+  <ComposeCreate v-if="source === 'compose'" />
+  <form v-else class="max-w-4xl" @submit.prevent="submit">
     <p v-if="error" class="notice-error">{{ error }}</p>
     <div class="content-grid">
       <Card
@@ -192,16 +203,30 @@ async function submit() {
                   {{ reposLoading ? '正在获取…' : '刷新列表' }}
                 </button>
               </div>
-              <select v-model="f.repo_url" class="native-select" required :disabled="reposLoading" @change="selectRepo">
-                <option value="" disabled>{{ reposLoading ? '正在获取仓库…' : '请选择 GitHub 仓库' }}</option>
+              <select
+                v-model="f.repo_url"
+                class="native-select"
+                required
+                :disabled="reposLoading"
+                @change="selectRepo"
+              >
+                <option value="" disabled>
+                  {{ reposLoading ? '正在获取仓库…' : '请选择 GitHub 仓库' }}
+                </option>
                 <option v-for="repo in repos" :key="repo.html_url" :value="repo.html_url">
                   {{ repo.full_name }}{{ repo.private ? '（私有）' : '' }}
                 </option>
               </select>
-              <p v-if="reposError" class="field-help text-destructive">获取仓库失败：{{ reposError }}</p>
-              <p v-else-if="!reposLoading && !repos.length" class="field-help">暂无可访问仓库，请检查 GitHub PAT 的仓库权限。</p>
-            </div></div></CardContent
-      ></Card>
+              <p v-if="reposError" class="field-help text-destructive">
+                获取仓库失败：{{ reposError }}
+              </p>
+              <p v-else-if="!reposLoading && !repos.length" class="field-help">
+                暂无可访问仓库，请检查 GitHub PAT 的仓库权限。
+              </p>
+            </div>
+          </div></CardContent
+        ></Card
+      >
 
       <Card
         ><CardHeader class="border-b"

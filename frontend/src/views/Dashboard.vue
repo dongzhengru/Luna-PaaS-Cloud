@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ArrowRight, Boxes, PackageCheck, Plus, Server } from 'lucide-vue-next'
 import { api } from '../api'
+import { composeStatusLabels } from '@/lib/compose'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -54,7 +55,9 @@ onMounted(async () => {
         </div>
         <div>
           <p class="stat-label">运行版本</p>
-          <span class="stat-value">{{ apps.filter((a) => a.active_release_id).length }}</span>
+          <span class="stat-value">{{
+            apps.filter((a) => a.active_release_id || a.compose_active_version_id).length
+          }}</span>
         </div></CardContent
       ></Card
     >
@@ -87,12 +90,31 @@ onMounted(async () => {
                   a.name
                 }}</RouterLink>
               </td>
-              <td class="text-muted-foreground">{{ a.type }}</td>
-              <td>{{ a.repo_owner }}/{{ a.repo_name }}</td>
+              <td class="text-muted-foreground">
+                {{ a.deployment_source === 'compose' ? 'Docker Compose' : a.type }}
+              </td>
               <td>
-                <Badge :variant="a.active_release_id ? 'success' : 'warning'">{{
-                  a.active_release_id ? '运行中' : '待发布'
-                }}</Badge>
+                {{
+                  a.deployment_source === 'compose'
+                    ? '容器编排部署'
+                    : `${a.repo_owner}/${a.repo_name}`
+                }}
+              </td>
+              <td>
+                <Badge
+                  :variant="
+                    (a.active_release_id || a.compose_active_version_id) && a.status === 'running'
+                      ? 'success'
+                      : 'warning'
+                  "
+                  >{{
+                    a.deployment_source === 'compose'
+                      ? composeStatusLabels[a.status] || a.status
+                      : a.active_release_id
+                        ? '运行中'
+                        : '待发布'
+                  }}</Badge
+                >
               </td>
             </tr>
           </tbody>
